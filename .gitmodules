@@ -1,0 +1,3 @@
+[submodule "cpp_redis"]
+	path = cpp_redis
+	url = https://github.com/Cylix/cpp_redis.git

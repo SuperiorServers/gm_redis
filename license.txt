@@ -1,0 +1,5 @@
+gm_redis
+A Garry's Mod module that adds Redis client capabilities.
+-----------------------------------------------------------------------
+Copyright (c) 2017, Daniel Almeida
+All rights reserved.
