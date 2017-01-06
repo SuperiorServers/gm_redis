@@ -13,7 +13,6 @@ namespace redis_client
 
 enum class Action
 {
-	Connection,
 	Disconnection,
 	Reply
 };
@@ -71,25 +70,21 @@ static const uint8_t metatype = 127;
 static const char *invalid_error = "invalid redis_client";
 static const char *table_name = "redis_clients";
 
-static lua_State *Lua = nullptr;
-
 LUA_FUNCTION( Create )
 {
 	Container *container = nullptr;
 	cpp_redis::redis_client *client = nullptr;
-	bool errored = false;
 	try
 	{
 		container = new Container;
 		client = &container->GetClient( );
 	}
-	catch( ... )
+	catch( const cpp_redis::redis_error &e )
 	{
-		errored = true;
+		LUA->PushNil( );
+		LUA->PushString( e.what( ) );
+		return 2;
 	}
-
-	if( errored )
-		LUA->ThrowError( "unable to allocate cpp_redis::redis_client" );
 
 	UserData *udata = static_cast<UserData *>( LUA->NewUserdata( sizeof( UserData ) ) );
 	udata->client = client;
@@ -191,13 +186,15 @@ LUA_FUNCTION_STATIC( gc )
 
 LUA_FUNCTION_STATIC( IsValid )
 {
-	LUA->PushBool( GetUserData( state, 1 )->client != nullptr );
+	UserData *udata = GetUserData( state, 1 );
+	LUA->PushBool( udata->client != nullptr );
 	return 1;
 }
 
 LUA_FUNCTION_STATIC( IsConnected )
 {
-	LUA->PushBool( Get( state, 1 )->is_connected( ) );
+	cpp_redis::redis_client *client = Get( state, 1 );
+	LUA->PushBool( client->is_connected( ) );
 	return 1;
 }
 
@@ -208,51 +205,28 @@ LUA_FUNCTION_STATIC( Connect )
 	const char *host = LUA->GetString( 2 );
 	size_t port = static_cast<size_t>( LUA->GetNumber( 3 ) );
 
-	bool hascb = LUA->Top( ) >= 3;
-	if( hascb )
-		LUA->CheckType( 3, GarrysMod::Lua::Type::FUNCTION );
-
-	bool errored = false;
-	if( LUA->Top( ) >= 4 )
+	try
 	{
-		LUA->CheckType( 4, GarrysMod::Lua::Type::FUNCTION );
-
-		LUA->Push( 4 );
-		int32_t reference = LUA->ReferenceCreate( );
-
-		try
+		client->connect( host, port, [container]( cpp_redis::redis_client & )
 		{
-			client->connect( host, port, [container, reference]( cpp_redis::redis_client & )
-			{
-				container->EnqueueResponse( { Action::Disconnection, cpp_redis::reply( ), reference } );
-			} );
-		}
-		catch( ... )
-		{
-			errored = true;
-		}
+			container->EnqueueResponse( { Action::Disconnection } );
+		} );
 	}
-	else
+	catch( const cpp_redis::redis_error &e )
 	{
-		try
-		{
-			client->connect( host, port );
-		}
-		catch( ... )
-		{
-			errored = true;
-		}
+		LUA->PushNil( );
+		LUA->PushString( e.what( ) );
+		return 2;
 	}
 
-	if( errored )
-		LUA->ThrowError( "unable to Connect" );
-
-	return 0;
+	LUA->PushBool( true );
+	return 1;
 }
 
 LUA_FUNCTION_STATIC( Disconnect )
 {
-	Get( state, 1 )->disconnect( );
+	cpp_redis::redis_client *client = Get( state, 1 );
+	client->disconnect( );
 	return 0;
 }
 
@@ -298,39 +272,54 @@ LUA_FUNCTION_STATIC( Poll )
 	LUA->GetField( GarrysMod::Lua::INDEX_GLOBAL, "debug" );
 	LUA->GetField( -1, "traceback" );
 
+	bool had_responses = false;
 	Response response;
 	while( container->DequeueResponse( response ) )
 	{
 		LUA->Push( 1 );
 		
-		switch( response.reply.get_type( ) )
+		switch( response.type )
 		{
-		case cpp_redis::reply::type::error:
-		case cpp_redis::reply::type::bulk_string:
-		case cpp_redis::reply::type::simple_string:
-			LUA->PushString( response.reply.as_string( ).c_str( ) );
+		case Action::Disconnection:
+			if( luaL_callmeta( state, 1, "OnDisconnected" ) == 1 )
+				LUA->Pop( );
+
 			break;
 
-		case cpp_redis::reply::type::integer:
-			LUA->PushNumber( static_cast<double>( response.reply.as_integer( ) ) );
-			break;
+		case Action::Reply:
+			switch( response.reply.get_type( ) )
+			{
+			case cpp_redis::reply::type::error:
+			case cpp_redis::reply::type::bulk_string:
+			case cpp_redis::reply::type::simple_string:
+				LUA->PushString( response.reply.as_string( ).c_str( ) );
+				break;
 
-		case cpp_redis::reply::type::array:
-			BuildTable( state, response.reply.as_array( ) );
-			break;
+			case cpp_redis::reply::type::integer:
+				LUA->PushNumber( static_cast<double>( response.reply.as_integer( ) ) );
+				break;
 
-		case cpp_redis::reply::type::null:
-			LUA->PushNil( );
+			case cpp_redis::reply::type::array:
+				BuildTable( state, response.reply.as_array( ) );
+				break;
+
+			case cpp_redis::reply::type::null:
+				LUA->PushNil( );
+				break;
+			}
+
+			LUA->ReferencePush( response.reference );
+			LUA->PCall( 2, 0, -4 );
+
+			LUA->ReferenceFree( response.reference );
 			break;
 		}
 
-		LUA->ReferencePush( response.reference );
-		LUA->PCall( 2, 0, -4 );
-
-		LUA->ReferenceFree( response.reference );
+		had_responses = true;
 	}
-
-	return 0;
+	
+	LUA->PushBool( had_responses );
+	return 1;
 }
 
 LUA_FUNCTION_STATIC( Send )
@@ -342,76 +331,92 @@ LUA_FUNCTION_STATIC( Send )
 	if( cmdtype != GarrysMod::Lua::Type::TABLE && cmdtype != GarrysMod::Lua::Type::STRING )
 		luaL_typerror( state, 2, "string or table" );
 
-	bool hascb = LUA->Top( ) >= 3;
-	if( hascb )
+	bool has_callback = LUA->Top( ) >= 3;
+	if( has_callback )
 		LUA->CheckType( 3, GarrysMod::Lua::Type::FUNCTION );
 
-	bool errored = false;
+	std::vector<std::string> keys;
+	if( cmdtype == GarrysMod::Lua::Type::TABLE )
 	{
-		std::vector<std::string> keys;
-		if( cmdtype == GarrysMod::Lua::Type::TABLE )
+		int32_t k = 1;
+		do
 		{
-			int32_t k = 1;
-			do
+			LUA->PushNumber( k );
+			LUA->GetTable( 2 );
+			if( LUA->IsType( -1, GarrysMod::Lua::Type::NIL ) )
 			{
-				LUA->PushNumber( k );
-				LUA->GetTable( 2 );
-				if( LUA->IsType( -1, GarrysMod::Lua::Type::NIL ) )
-				{
-					LUA->Pop( );
-					break;
-				}
-
-				keys.push_back( LUA->GetString( -1 ) );
 				LUA->Pop( );
-				++k;
+				break;
 			}
-			while( true );
-		}
-		else if( cmdtype == GarrysMod::Lua::Type::STRING )
-			keys.push_back( LUA->GetString( 2 ) );
 
-		if( hascb )
-		{
-			LUA->Push( 3 );
-			int32_t reference = LUA->ReferenceCreate( );
-
-			try
-			{
-				client->send( keys, [container, reference]( cpp_redis::reply &reply )
-				{
-					container->EnqueueResponse( { Action::Reply, reply, reference } );
-				} );
-			}
-			catch( ... )
-			{
-				LUA->ReferenceFree( reference );
-				errored = true;
-			}
+			keys.push_back( LUA->GetString( -1 ) );
+			LUA->Pop( );
+			++k;
 		}
-		else
+		while( true );
+	}
+	else if( cmdtype == GarrysMod::Lua::Type::STRING )
+		keys.push_back( LUA->GetString( 2 ) );
+
+	if( has_callback )
+	{
+		LUA->Push( 3 );
+		int32_t reference = LUA->ReferenceCreate( );
+
+		try
 		{
-			try
+			client->send( keys, [container, reference]( cpp_redis::reply &reply )
 			{
-				client->send( keys );
-			}
-			catch( ... )
-			{
-				errored = true;
-			}
+				container->EnqueueResponse( { Action::Reply, reply, reference } );
+			} );
+		}
+		catch( const cpp_redis::redis_error &e )
+		{
+			LUA->ReferenceFree( reference );
+			LUA->PushNil( );
+			LUA->PushString( e.what( ) );
+			return 2;
+		}
+	}
+	else
+	{
+		try
+		{
+			client->send( keys );
+		}
+		catch( const cpp_redis::redis_error &e )
+		{
+			LUA->PushNil( );
+			LUA->PushString( e.what( ) );
+			return 2;
 		}
 	}
 
-	if( errored )
-		LUA->ThrowError( "unable to Send" );
+	LUA->PushBool( true );
+	return 1;
+}
 
-	return 0;
+LUA_FUNCTION_STATIC( Commit )
+{
+	cpp_redis::redis_client *client = Get( state, 1 );
+
+	try
+	{
+		client->commit( );
+	}
+	catch( const cpp_redis::redis_error &e )
+	{
+		LUA->PushNil( );
+		LUA->PushString( e.what( ) );
+		return 2;
+	}
+
+	LUA->PushBool( true );
+	return 1;
 }
 
 void Initialize( lua_State *state )
 {
-	Lua = state;
-
 	LUA->CreateMetaTableType( metaname, metatype );
 
 	LUA->PushCFunction( tostring );
@@ -449,6 +454,9 @@ void Initialize( lua_State *state )
 	
 	LUA->PushCFunction( Send );
 	LUA->SetField( -2, "Send" );
+
+	LUA->PushCFunction( Commit );
+	LUA->SetField( -2, "Commit" );
 
 	LUA->Pop( 1 );
 }
