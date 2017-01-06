@@ -29,6 +29,10 @@ end
 
 local meta = FindMetaTable("redis_client")
 
+function meta:Auth(password, callback)
+	return self:Send({"AUTH", password}, callback)
+end
+
 function meta:State(callback)
 	return self:Send({"CLUSTER", "INFO"}, callback)
 end
