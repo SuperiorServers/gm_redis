@@ -42,20 +42,9 @@ public:
 		return queue.try_dequeue( response );
 	}
 
-	int32_t GetDisconnectionReference( ) const
-	{
-		return disconnection_ref;
-	}
-
-	void SetDisconnectionReference( int32_t ref )
-	{
-		disconnection_ref = ref;
-	}
-
 private:
 	cpp_redis::redis_client client;
 	moodycamel::ReaderWriterQueue<Response> queue;
-	int32_t disconnection_ref;
 };
 
 struct UserData
