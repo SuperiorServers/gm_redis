@@ -1,4 +1,5 @@
 #include <GarrysMod/Lua/Interface.h>
+#include <GarrysMod/Lua/LuaInterface.h>
 #include <redis_client.hpp>
 #include <main.hpp>
 #include <cstdint>
@@ -54,10 +55,10 @@ struct UserData
 	Container *container;
 };
 
-static const char *metaname = "redis_client";
+static const char metaname[] = "redis_client";
 static const uint8_t metatype = 127;
-static const char *invalid_error = "invalid redis_client";
-static const char *table_name = "redis_clients";
+static const char invalid_error[] = "invalid redis_client";
+static const char table_name[] = "redis_clients";
 
 LUA_FUNCTION( Create )
 {
@@ -265,6 +266,7 @@ LUA_FUNCTION_STATIC( Poll )
 	Response response;
 	while( container->DequeueResponse( response ) )
 	{
+		LUA->ReferencePush( response.reference );
 		LUA->Push( 1 );
 		
 		switch( response.type )
@@ -297,8 +299,11 @@ LUA_FUNCTION_STATIC( Poll )
 				break;
 			}
 
-			LUA->ReferencePush( response.reference );
-			LUA->PCall( 2, 0, -4 );
+			if( LUA->PCall( 2, 0, -4 ) != 0 )
+			{
+				static_cast<GarrysMod::Lua::ILuaInterface *>( LUA )->ErrorNoHalt( "\n[redis client callback error] %s\n\n", LUA->GetString( -1 ) );
+				LUA->Pop( );
+			}
 
 			LUA->ReferenceFree( response.reference );
 			break;
@@ -320,9 +325,13 @@ LUA_FUNCTION_STATIC( Send )
 	if( cmdtype != GarrysMod::Lua::Type::TABLE && cmdtype != GarrysMod::Lua::Type::STRING )
 		luaL_typerror( state, 2, "string or table" );
 
-	bool has_callback = LUA->Top( ) >= 3;
-	if( has_callback )
+	int32_t reference = LUA_TNONE;
+	if( LUA->Top( ) >= 3 )
+	{
 		LUA->CheckType( 3, GarrysMod::Lua::Type::FUNCTION );
+		LUA->Push( 3 );
+		reference = LUA->ReferenceCreate( );
+	}
 
 	std::vector<std::string> keys;
 	if( cmdtype == GarrysMod::Lua::Type::TABLE )
@@ -347,11 +356,8 @@ LUA_FUNCTION_STATIC( Send )
 	else if( cmdtype == GarrysMod::Lua::Type::STRING )
 		keys.push_back( LUA->GetString( 2 ) );
 
-	if( has_callback )
+	if( reference != LUA_TNONE )
 	{
-		LUA->Push( 3 );
-		int32_t reference = LUA->ReferenceCreate( );
-
 		try
 		{
 			client->send( keys, [container, reference]( cpp_redis::reply &reply )
