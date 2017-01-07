@@ -326,7 +326,7 @@ LUA_FUNCTION_STATIC( Send )
 		luaL_typerror( state, 2, "string or table" );
 
 	int32_t reference = LUA_TNONE;
-	if( LUA->Top( ) >= 3 )
+	if( LUA->Top( ) >= 3 && !LUA->IsType( 3, GarrysMod::Lua::Type::NIL ) )
 	{
 		LUA->CheckType( 3, GarrysMod::Lua::Type::FUNCTION );
 		LUA->Push( 3 );
