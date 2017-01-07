@@ -10,4 +10,4 @@ If stuff starts erroring or fails to work, be sure to check the correct line end
 
 
   [1]: https://redis.io
-  [1]: https://github.com/cylix/cpp_redis
+  [2]: https://github.com/cylix/cpp_redis
