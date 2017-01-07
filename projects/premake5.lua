@@ -14,6 +14,7 @@ include(gmcommon)
 local REDIS_FOLDER = "../cpp_redis"
 
 CreateWorkspace({name = "redis.core"})
+	flags("C++11")
 	CreateProject({serverside = true})
 		links("cpp_redis")
 		includedirs(REDIS_FOLDER .. "/includes")
