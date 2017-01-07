@@ -1,6 +1,6 @@
 #include <GarrysMod/Lua/Interface.h>
 #include <GarrysMod/Lua/LuaInterface.h>
-#include <redis_client.hpp>
+#include <redis_subscriber.hpp>
 #include <main.hpp>
 #include <cstdint>
 #include <lua.hpp>
@@ -9,29 +9,28 @@
 #include <vector>
 #include <memory>
 
-namespace redis_client
+namespace redis_subscriber
 {
 
 enum class Action
 {
 	Disconnection,
-	Reply,
-	Publish
+	Message
 };
 
 struct Response
 {
 	Action type;
-	cpp_redis::reply reply;
-	int32_t reference;
+	std::string channel;
+	std::string message;
 };
 
 class Container
 {
 public:
-	cpp_redis::redis_client &GetClient( )
+	cpp_redis::redis_subscriber &GetSubscriber( )
 	{
-		return client;
+		return subscriber;
 	}
 
 	bool EnqueueResponse( const Response &response )
@@ -45,30 +44,30 @@ public:
 	}
 
 private:
-	cpp_redis::redis_client client;
+	cpp_redis::redis_subscriber subscriber;
 	moodycamel::ReaderWriterQueue<Response> queue;
 };
 
 struct UserData
 {
-	cpp_redis::redis_client *client;
+	cpp_redis::redis_subscriber *subscriber;
 	uint8_t type;
 	Container *container;
 };
 
-static const char metaname[] = "redis_client";
+static const char metaname[] = "redis_subscriber";
 static const uint8_t metatype = 127;
-static const char invalid_error[] = "invalid redis_client";
-static const char table_name[] = "redis_clients";
+static const char invalid_error[] = "invalid redis_subscriber";
+static const char table_name[] = "redis_subscribers";
 
 LUA_FUNCTION( Create )
 {
 	Container *container = nullptr;
-	cpp_redis::redis_client *client = nullptr;
+	cpp_redis::redis_subscriber *subscriber = nullptr;
 	try
 	{
 		container = new Container;
-		client = &container->GetClient( );
+		subscriber = &container->GetSubscriber( );
 	}
 	catch( const cpp_redis::redis_error &e )
 	{
@@ -78,7 +77,7 @@ LUA_FUNCTION( Create )
 	}
 
 	UserData *udata = static_cast<UserData *>( LUA->NewUserdata( sizeof( UserData ) ) );
-	udata->client = client;
+	udata->subscriber = subscriber;
 	udata->container = container;
 	udata->type = metatype;
 
@@ -89,7 +88,7 @@ LUA_FUNCTION( Create )
 	lua_setfenv( state, -2 );
 
 	LUA->GetField( GarrysMod::Lua::INDEX_REGISTRY, table_name );
-	LUA->PushUserdata( client );
+	LUA->PushUserdata( subscriber );
 	LUA->Push( -3 );
 	LUA->SetTable( -4 );
 	LUA->Pop( );
@@ -108,18 +107,18 @@ inline UserData *GetUserData( lua_State *state, int index )
 	return static_cast<UserData *>( LUA->GetUserdata( index ) );
 }
 
-static cpp_redis::redis_client *Get( lua_State *state, int32_t index, Container **container = nullptr )
+static cpp_redis::redis_subscriber *Get( lua_State *state, int32_t index, Container **container = nullptr )
 {
 	CheckType( state, index );
 	UserData *udata = GetUserData( state, index );
-	cpp_redis::redis_client *client = udata->client;
-	if( client == nullptr )
+	cpp_redis::redis_subscriber *subscriber = udata->subscriber;
+	if( subscriber == nullptr )
 		LUA->ArgError( index, invalid_error );
 
 	if( container != nullptr )
 		*container = udata->container;
 
-	return client;
+	return subscriber;
 }
 
 LUA_FUNCTION_STATIC( tostring )
@@ -166,11 +165,11 @@ LUA_FUNCTION_STATIC( newindex )
 LUA_FUNCTION_STATIC( gc )
 {
 	UserData *userdata = GetUserData( state, 1 );
-	cpp_redis::redis_client *client = userdata->client;
-	if( client == nullptr )
+	cpp_redis::redis_subscriber *subscriber = userdata->subscriber;
+	if( subscriber == nullptr )
 		return 0;
 
-	userdata->client = nullptr;
+	userdata->subscriber = nullptr;
 	delete userdata->container;
 	userdata->container = nullptr;
 	return 0;
@@ -179,27 +178,27 @@ LUA_FUNCTION_STATIC( gc )
 LUA_FUNCTION_STATIC( IsValid )
 {
 	UserData *udata = GetUserData( state, 1 );
-	LUA->PushBool( udata->client != nullptr );
+	LUA->PushBool( udata->subscriber != nullptr );
 	return 1;
 }
 
 LUA_FUNCTION_STATIC( IsConnected )
 {
-	cpp_redis::redis_client *client = Get( state, 1 );
-	LUA->PushBool( client->is_connected( ) );
+	cpp_redis::redis_subscriber *subscriber = Get( state, 1 );
+	LUA->PushBool( subscriber->is_connected( ) );
 	return 1;
 }
 
 LUA_FUNCTION_STATIC( Connect )
 {
 	Container *container = nullptr;
-	cpp_redis::redis_client *client = Get( state, 1, &container );
+	cpp_redis::redis_subscriber *subscriber = Get( state, 1, &container );
 	const char *host = LUA->GetString( 2 );
 	size_t port = static_cast<size_t>( LUA->GetNumber( 3 ) );
 
 	try
 	{
-		client->connect( host, port, [container]( cpp_redis::redis_client & )
+		subscriber->connect( host, port, [container]( cpp_redis::redis_subscriber & )
 		{
 			container->EnqueueResponse( { Action::Disconnection } );
 		} );
@@ -217,43 +216,9 @@ LUA_FUNCTION_STATIC( Connect )
 
 LUA_FUNCTION_STATIC( Disconnect )
 {
-	cpp_redis::redis_client *client = Get( state, 1 );
-	client->disconnect( );
+	cpp_redis::redis_subscriber *subscriber = Get( state, 1 );
+	subscriber->disconnect( );
 	return 0;
-}
-
-inline void BuildTable( lua_State *state, const std::vector<cpp_redis::reply> &replies )
-{
-	LUA->CreateTable( );
-
-	for( size_t k = 0; k < replies.size( ); ++k )
-	{
-		LUA->PushNumber( static_cast<double>( k ) );
-		
-		const cpp_redis::reply &reply = replies[k];
-		switch( reply.get_type( ) )
-		{
-		case cpp_redis::reply::type::error:
-		case cpp_redis::reply::type::bulk_string:
-		case cpp_redis::reply::type::simple_string:
-			LUA->PushString( reply.as_string( ).c_str( ) );
-			break;
-
-		case cpp_redis::reply::type::integer:
-			LUA->PushNumber( static_cast<double>( reply.as_integer( ) ) );
-			break;
-
-		case cpp_redis::reply::type::array:
-			BuildTable( state, reply.as_array( ) );
-			break;
-
-		case cpp_redis::reply::type::null:
-			LUA->PushNil( );
-			break;
-		}
-
-		LUA->SetTable( -3 );
-	}
 }
 
 LUA_FUNCTION_STATIC( Poll )
@@ -276,43 +241,26 @@ LUA_FUNCTION_STATIC( Poll )
 
 			LUA->Push( 1 );
 			if( LUA->PCall( 1, 1, -3 ) != 0 )
+			{
 				static_cast<GarrysMod::Lua::ILuaInterface *>( LUA )->ErrorNoHalt( "\n[redis subscriber callback error] %s\n\n", LUA->GetString( -1 ) );
-
-			LUA->Pop( );
-			break;
-
-		case Action::Reply:
-			LUA->ReferencePush( response.reference );
-			LUA->Push( 1 );
-
-			switch( response.reply.get_type( ) )
-			{
-			case cpp_redis::reply::type::error:
-			case cpp_redis::reply::type::bulk_string:
-			case cpp_redis::reply::type::simple_string:
-				LUA->PushString( response.reply.as_string( ).c_str( ) );
-				break;
-
-			case cpp_redis::reply::type::integer:
-				LUA->PushNumber( static_cast<double>( response.reply.as_integer( ) ) );
-				break;
-
-			case cpp_redis::reply::type::array:
-				BuildTable( state, response.reply.as_array( ) );
-				break;
-
-			case cpp_redis::reply::type::null:
-				LUA->PushNil( );
-				break;
-			}
-
-			if( LUA->PCall( 2, 0, -4 ) != 0 )
-			{
-				static_cast<GarrysMod::Lua::ILuaInterface *>( LUA )->ErrorNoHalt( "\n[redis client callback error] %s\n\n", LUA->GetString( -1 ) );
 				LUA->Pop( );
 			}
 
-			LUA->ReferenceFree( response.reference );
+			break;
+
+		case Action::Message:
+			if( !redis::GetMetaField( state, 1, "OnMessage" ) )
+				break;
+
+			LUA->Push( 1 );
+			LUA->PushString( response.channel.c_str( ) );
+			LUA->PushString( response.message.c_str( ) );
+			if( LUA->PCall( 3, 0, -5 ) != 0 )
+			{
+				static_cast<GarrysMod::Lua::ILuaInterface *>( LUA )->ErrorNoHalt( "\n[redis subscriber callback error] %s\n\n", LUA->GetString( -1 ) );
+				LUA->Pop( );
+			}
+
 			break;
 		}
 
@@ -323,75 +271,90 @@ LUA_FUNCTION_STATIC( Poll )
 	return 1;
 }
 
-LUA_FUNCTION_STATIC( Send )
+LUA_FUNCTION_STATIC( Subscribe )
 {
 	Container *container = nullptr;
-	cpp_redis::redis_client *client = Get( state, 1, &container );
+	cpp_redis::redis_subscriber *subscriber = Get( state, 1, &container );
+	const char *channel = LUA->GetString( 2 );
+	LUA->CheckType( 3, GarrysMod::Lua::Type::FUNCTION );
 
-	int32_t cmdtype = LUA->GetType( 2 );
-	if( cmdtype != GarrysMod::Lua::Type::TABLE && cmdtype != GarrysMod::Lua::Type::STRING )
-		luaL_typerror( state, 2, "string or table" );
-
-	int32_t reference = LUA_TNONE;
-	if( LUA->Top( ) >= 3 && !LUA->IsType( 3, GarrysMod::Lua::Type::NIL ) )
+	try
 	{
-		LUA->CheckType( 3, GarrysMod::Lua::Type::FUNCTION );
-		LUA->Push( 3 );
-		reference = LUA->ReferenceCreate( );
+		subscriber->subscribe( channel, [container]( const std::string &channel, const std::string &message )
+		{
+			container->EnqueueResponse( { Action::Disconnection, channel, message } );
+		} );
+	}
+	catch( const cpp_redis::redis_error &e )
+	{
+		LUA->PushNil( );
+		LUA->PushString( e.what( ) );
+		return 2;
 	}
 
-	std::vector<std::string> keys;
-	if( cmdtype == GarrysMod::Lua::Type::TABLE )
-	{
-		int32_t k = 1;
-		do
-		{
-			LUA->PushNumber( k );
-			LUA->GetTable( 2 );
-			if( LUA->IsType( -1, GarrysMod::Lua::Type::NIL ) )
-			{
-				LUA->Pop( );
-				break;
-			}
+	LUA->PushBool( true );
+	return 1;
+}
 
-			keys.push_back( LUA->GetString( -1 ) );
-			LUA->Pop( );
-			++k;
-		}
-		while( true );
-	}
-	else if( cmdtype == GarrysMod::Lua::Type::STRING )
-		keys.push_back( LUA->GetString( 2 ) );
+LUA_FUNCTION_STATIC( Unsubscribe )
+{
+	cpp_redis::redis_subscriber *subscriber = Get( state, 1 );
+	const char *channel = LUA->GetString( 2 );
 
-	if( reference != LUA_TNONE )
+	try
 	{
-		try
-		{
-			client->send( keys, [container, reference]( cpp_redis::reply &reply )
-			{
-				container->EnqueueResponse( { Action::Reply, reply, reference } );
-			} );
-		}
-		catch( const cpp_redis::redis_error &e )
-		{
-			LUA->ReferenceFree( reference );
-			LUA->PushNil( );
-			LUA->PushString( e.what( ) );
-			return 2;
-		}
+		subscriber->unsubscribe( channel );
 	}
-	else
+	catch( const cpp_redis::redis_error &e )
 	{
-		try
+		LUA->PushNil( );
+		LUA->PushString( e.what( ) );
+		return 2;
+	}
+
+	LUA->PushBool( true );
+	return 1;
+}
+
+LUA_FUNCTION_STATIC( PSubscribe )
+{
+	Container *container = nullptr;
+	cpp_redis::redis_subscriber *subscriber = Get( state, 1, &container );
+	const char *channel = LUA->GetString( 2 );
+	LUA->CheckType( 3, GarrysMod::Lua::Type::FUNCTION );
+
+	try
+	{
+		subscriber->psubscribe( channel, [container]( const std::string &channel, const std::string &message )
 		{
-			client->send( keys );
-		}
-		catch( const cpp_redis::redis_error &e )
-		{
-			LUA->PushNil( );
-			LUA->PushString( e.what( ) );
-			return 2;
-		}
+			container->EnqueueResponse( { Action::Disconnection, channel, message } );
+		} );
+	}
+	catch( const cpp_redis::redis_error &e )
+	{
+		LUA->PushNil( );
+		LUA->PushString( e.what( ) );
+		return 2;
+	}
+
+	LUA->PushBool( true );
+	return 1;
+}
+
+LUA_FUNCTION_STATIC( PUnsubscribe )
+{
+	cpp_redis::redis_subscriber *subscriber = Get( state, 1 );
+	const char *channel = LUA->GetString( 2 );
+
+	try
+	{
+		subscriber->punsubscribe( channel );
+	}
+	catch( const cpp_redis::redis_error &e )
+	{
+		LUA->PushNil( );
+		LUA->PushString( e.what( ) );
+		return 2;
 	}
 
 	LUA->PushBool( true );
@@ -400,11 +363,11 @@ LUA_FUNCTION_STATIC( Send )
 
 LUA_FUNCTION_STATIC( Commit )
 {
-	cpp_redis::redis_client *client = Get( state, 1 );
+	cpp_redis::redis_subscriber *subscriber = Get( state, 1 );
 
 	try
 	{
-		client->commit( );
+		subscriber->commit( );
 	}
 	catch( const cpp_redis::redis_error &e )
 	{
@@ -454,8 +417,17 @@ void Initialize( lua_State *state )
 	LUA->PushCFunction( Poll );
 	LUA->SetField( -2, "Poll" );
 	
-	LUA->PushCFunction( Send );
-	LUA->SetField( -2, "Send" );
+	LUA->PushCFunction( Subscribe );
+	LUA->SetField( -2, "Subscribe" );
+
+	LUA->PushCFunction( Unsubscribe );
+	LUA->SetField( -2, "Unsubscribe" );
+
+	LUA->PushCFunction( PSubscribe );
+	LUA->SetField( -2, "PSubscribe" );
+
+	LUA->PushCFunction( PUnsubscribe );
+	LUA->SetField( -2, "PUnsubscribe" );
 
 	LUA->PushCFunction( Commit );
 	LUA->SetField( -2, "Commit" );

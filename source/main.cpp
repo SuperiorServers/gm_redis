@@ -1,6 +1,8 @@
 #include <GarrysMod/Lua/Interface.h>
 #include <main.hpp>
 #include <redis_client.hpp>
+#include <redis_subscriber.hpp>
+#include <lua.hpp>
 
 namespace redis
 {
@@ -19,11 +21,38 @@ const char *tostring_format = "%s: %p";
 
 #endif
 
+bool GetMetaField( lua_State *state, int32_t idx, const char *metafield )
+{
+	LUA->GetMetaTable( idx );
+	LUA->PushString( metafield );
+	LUA->RawGet( -2 );
+	if( LUA->IsType( -1, GarrysMod::Lua::Type::FUNCTION ) )
+	{
+		LUA->Remove( -2 );
+		return true;
+	}
+
+	LUA->Pop( 2 );
+
+	lua_getfenv( state, idx );
+	LUA->Push( 2 );
+	LUA->RawGet( -2 );
+	if( LUA->IsType( -1, GarrysMod::Lua::Type::FUNCTION ) )
+	{
+		LUA->Remove( -2 );
+		return true;
+	}
+
+	LUA->Pop( 2 );
+	return false;
+}
+
 }
 
 GMOD_MODULE_OPEN( )
 {
 	redis_client::Initialize( state );
+	redis_subscriber::Initialize( state );
 
 	LUA->CreateTable( );
 
@@ -37,6 +66,9 @@ GMOD_MODULE_OPEN( )
 	LUA->PushCFunction( redis_client::Create );
 	LUA->SetField( -2, "CreateClient" );
 
+	LUA->PushCFunction( redis_subscriber::Create );
+	LUA->SetField( -2, "CreateSubscriber" );
+
 	LUA->SetField( GarrysMod::Lua::INDEX_GLOBAL, redis::table_name );
 
 	return 0;
@@ -47,6 +79,7 @@ GMOD_MODULE_CLOSE( )
 	LUA->PushNil( );
 	LUA->SetField( GarrysMod::Lua::INDEX_GLOBAL, redis::table_name );
 
+	redis_subscriber::Deinitialize( state );
 	redis_client::Deinitialize( state );
 
 	return 0;

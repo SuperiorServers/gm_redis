@@ -27,6 +27,33 @@ function redis.GetClientsTable()
 	return clients
 end
 
+local subscribers = setmetatable({}, {__mode = "v"})
+local subscribersnum = 0
+local redisCreateSubscriber = redis.CreateSubscriber
+
+function redis.CreateSubscriber()
+	local subscriber, err = redisCreateSubscriber()
+	if not subscriber then
+		error(err)
+	end
+
+	table.insert(subscribers, subscriber)
+	subscribersnum = subscribersnum + 1
+	return subscriber
+end
+
+function redis.GetSubscribersTable()
+	for i = 1, subscribersnum do
+		if subscribers[i] == nil then
+			table.remove(subscribers, i)
+			i = i - 1
+			subscribersnum = subscribersnum - 1
+		end
+	end
+
+	return subscribers
+end
+
 local meta = FindMetaTable("redis_client")
 
 function meta:Auth(password, callback)
@@ -85,6 +112,10 @@ function meta:Delete(key, callback)
 	end
 
 	return self:Send(cmd, callback)
+end
+
+function meta:Publish(channel, message, callback)
+	return self:Send({"PUBLISH", channel, message}, callback)
 end
 
 function meta:GetConfig(param, callback)
