@@ -323,14 +323,39 @@ LUA_FUNCTION_STATIC( Poll )
 	return 1;
 }
 
+inline const char *ToString( lua_State *state, int32_t idx, size_t *len = nullptr )
+{
+	if( luaL_callmeta( state, idx, "__tostring" ) == 0 )
+		switch( LUA->GetType( idx ) )
+		{
+		case GarrysMod::Lua::Type::NUMBER:
+			lua_pushfstring( state, "%f", LUA->GetNumber( idx ) );
+			break;
+
+		case GarrysMod::Lua::Type::STRING:
+			LUA->Push( idx );
+			break;
+
+		case GarrysMod::Lua::Type::BOOL:
+			LUA->PushString( LUA->GetBool( idx ) ? "true" : "false" );
+			break;
+
+		case GarrysMod::Lua::Type::NIL:
+			LUA->PushString( "nil" );
+			break;
+
+		default:
+			lua_pushfstring( state, "%s: %p", LUA->GetTypeName( LUA->GetType( idx ) ), lua_topointer( state, idx ) );
+			break;
+		}
+
+	return LUA->GetString( -1, len );
+}
+
 LUA_FUNCTION_STATIC( Send )
 {
 	Container *container = nullptr;
 	cpp_redis::redis_client *client = Get( state, 1, &container );
-
-	int32_t cmdtype = LUA->GetType( 2 );
-	if( cmdtype != GarrysMod::Lua::Type::TABLE && cmdtype != GarrysMod::Lua::Type::STRING )
-		luaL_typerror( state, 2, "string or table" );
 
 	int32_t reference = LUA_TNONE;
 	if( LUA->Top( ) >= 3 && !LUA->IsType( 3, GarrysMod::Lua::Type::NIL ) )
@@ -340,57 +365,59 @@ LUA_FUNCTION_STATIC( Send )
 		reference = LUA->ReferenceCreate( );
 	}
 
-	std::vector<std::string> keys;
-	if( cmdtype == GarrysMod::Lua::Type::TABLE )
 	{
-		int32_t k = 1;
-		do
+		std::vector<std::string> keys;
+		if( LUA->IsType( 2, GarrysMod::Lua::Type::TABLE ) )
 		{
-			LUA->PushNumber( k );
-			LUA->GetTable( 2 );
-			if( LUA->IsType( -1, GarrysMod::Lua::Type::NIL ) )
+			int32_t k = 1;
+			do
 			{
-				LUA->Pop( );
-				break;
+				LUA->PushNumber( k );
+				LUA->GetTable( 2 );
+				if( LUA->IsType( -1, GarrysMod::Lua::Type::NIL ) )
+				{
+					LUA->Pop( );
+					break;
+				}
+
+				keys.push_back( ToString( state, -1 ) );
+				LUA->Pop( 2 );
+				++k;
 			}
-
-			keys.push_back( LUA->GetString( -1 ) );
-			LUA->Pop( );
-			++k;
+			while( true );
 		}
-		while( true );
-	}
-	else if( cmdtype == GarrysMod::Lua::Type::STRING )
-		keys.push_back( LUA->GetString( 2 ) );
+		else
+			keys.push_back( ToString( state, 2 ) );
 
-	if( reference != LUA_TNONE )
-	{
-		try
+		if( reference != LUA_TNONE )
 		{
-			client->send( keys, [container, reference]( cpp_redis::reply &reply )
+			try
 			{
-				container->EnqueueResponse( { Action::Reply, reply, reference } );
-			} );
+				client->send( keys, [container, reference]( cpp_redis::reply &reply )
+				{
+					container->EnqueueResponse( { Action::Reply, reply, reference } );
+				} );
+			}
+			catch( const cpp_redis::redis_error &e )
+			{
+				LUA->ReferenceFree( reference );
+				LUA->PushNil( );
+				LUA->PushString( e.what( ) );
+				return 2;
+			}
 		}
-		catch( const cpp_redis::redis_error &e )
+		else
 		{
-			LUA->ReferenceFree( reference );
-			LUA->PushNil( );
-			LUA->PushString( e.what( ) );
-			return 2;
-		}
-	}
-	else
-	{
-		try
-		{
-			client->send( keys );
-		}
-		catch( const cpp_redis::redis_error &e )
-		{
-			LUA->PushNil( );
-			LUA->PushString( e.what( ) );
-			return 2;
+			try
+			{
+				client->send( keys );
+			}
+			catch( const cpp_redis::redis_error &e )
+			{
+				LUA->PushNil( );
+				LUA->PushString( e.what( ) );
+				return 2;
+			}
 		}
 	}
 
