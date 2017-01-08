@@ -178,8 +178,8 @@ LUA_FUNCTION_STATIC( gc )
 
 LUA_FUNCTION_STATIC( IsValid )
 {
-	UserData *udata = GetUserData( state, 1 );
-	LUA->PushBool( udata->client != nullptr );
+	cpp_redis::redis_client *client = Get( state, 1 );
+	LUA->PushBool( client != nullptr );
 	return 1;
 }
 
@@ -194,8 +194,8 @@ LUA_FUNCTION_STATIC( Connect )
 {
 	Container *container = nullptr;
 	cpp_redis::redis_client *client = Get( state, 1, &container );
-	const char *host = LUA->GetString( 2 );
-	size_t port = static_cast<size_t>( LUA->GetNumber( 3 ) );
+	const char *host = LUA->CheckString( 2 );
+	size_t port = static_cast<size_t>( LUA->CheckNumber( 3 ) );
 
 	try
 	{

@@ -177,8 +177,8 @@ LUA_FUNCTION_STATIC( gc )
 
 LUA_FUNCTION_STATIC( IsValid )
 {
-	UserData *udata = GetUserData( state, 1 );
-	LUA->PushBool( udata->subscriber != nullptr );
+	cpp_redis::redis_subscriber *subscriber = Get( state, 1 );
+	LUA->PushBool( subscriber != nullptr );
 	return 1;
 }
 
@@ -193,8 +193,8 @@ LUA_FUNCTION_STATIC( Connect )
 {
 	Container *container = nullptr;
 	cpp_redis::redis_subscriber *subscriber = Get( state, 1, &container );
-	const char *host = LUA->GetString( 2 );
-	size_t port = static_cast<size_t>( LUA->GetNumber( 3 ) );
+	const char *host = LUA->CheckString( 2 );
+	size_t port = static_cast<size_t>( LUA->CheckNumber( 3 ) );
 
 	try
 	{
@@ -275,7 +275,7 @@ LUA_FUNCTION_STATIC( Subscribe )
 {
 	Container *container = nullptr;
 	cpp_redis::redis_subscriber *subscriber = Get( state, 1, &container );
-	const char *channel = LUA->GetString( 2 );
+	const char *channel = LUA->CheckString( 2 );
 
 	try
 	{
@@ -298,7 +298,7 @@ LUA_FUNCTION_STATIC( Subscribe )
 LUA_FUNCTION_STATIC( Unsubscribe )
 {
 	cpp_redis::redis_subscriber *subscriber = Get( state, 1 );
-	const char *channel = LUA->GetString( 2 );
+	const char *channel = LUA->CheckString( 2 );
 
 	try
 	{
@@ -319,7 +319,7 @@ LUA_FUNCTION_STATIC( PSubscribe )
 {
 	Container *container = nullptr;
 	cpp_redis::redis_subscriber *subscriber = Get( state, 1, &container );
-	const char *channel = LUA->GetString( 2 );
+	const char *channel = LUA->CheckString( 2 );
 
 	try
 	{
@@ -342,7 +342,7 @@ LUA_FUNCTION_STATIC( PSubscribe )
 LUA_FUNCTION_STATIC( PUnsubscribe )
 {
 	cpp_redis::redis_subscriber *subscriber = Get( state, 1 );
-	const char *channel = LUA->GetString( 2 );
+	const char *channel = LUA->CheckString( 2 );
 
 	try
 	{
