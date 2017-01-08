@@ -35,7 +35,7 @@ bool GetMetaField( lua_State *state, int32_t idx, const char *metafield )
 	LUA->Pop( 2 );
 
 	lua_getfenv( state, idx );
-	LUA->Push( 2 );
+	LUA->PushString( metafield );
 	LUA->RawGet( -2 );
 	if( LUA->IsType( -1, GarrysMod::Lua::Type::FUNCTION ) )
 	{

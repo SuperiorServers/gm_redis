@@ -282,7 +282,7 @@ LUA_FUNCTION_STATIC( Subscribe )
 	{
 		subscriber->subscribe( channel, [container]( const std::string &channel, const std::string &message )
 		{
-			container->EnqueueResponse( { Action::Disconnection, channel, message } );
+			container->EnqueueResponse( { Action::Message, channel, message } );
 		} );
 	}
 	catch( const cpp_redis::redis_error &e )
@@ -327,7 +327,7 @@ LUA_FUNCTION_STATIC( PSubscribe )
 	{
 		subscriber->psubscribe( channel, [container]( const std::string &channel, const std::string &message )
 		{
-			container->EnqueueResponse( { Action::Disconnection, channel, message } );
+			container->EnqueueResponse( { Action::Message, channel, message } );
 		} );
 	}
 	catch( const cpp_redis::redis_error &e )
