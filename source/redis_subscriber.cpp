@@ -276,7 +276,6 @@ LUA_FUNCTION_STATIC( Subscribe )
 	Container *container = nullptr;
 	cpp_redis::redis_subscriber *subscriber = Get( state, 1, &container );
 	const char *channel = LUA->GetString( 2 );
-	LUA->CheckType( 3, GarrysMod::Lua::Type::FUNCTION );
 
 	try
 	{
@@ -321,7 +320,6 @@ LUA_FUNCTION_STATIC( PSubscribe )
 	Container *container = nullptr;
 	cpp_redis::redis_subscriber *subscriber = Get( state, 1, &container );
 	const char *channel = LUA->GetString( 2 );
-	LUA->CheckType( 3, GarrysMod::Lua::Type::FUNCTION );
 
 	try
 	{
