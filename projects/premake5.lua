@@ -12,11 +12,12 @@ end
 include(gmcommon)
 
 local REDIS_FOLDER = "../cpp_redis"
+local TACOPIE_FOLDER = "../cpp_redis/tacopie"
 
 CreateWorkspace({name = "redis.core"})
 	flags("C++11")
 	CreateProject({serverside = true})
-		links("cpp_redis")
+		links({"cpp_redis", "tacopie"})
 		includedirs(REDIS_FOLDER .. "/includes")
 		IncludeLuaShared()
 
@@ -24,7 +25,7 @@ CreateWorkspace({name = "redis.core"})
 			links("ws2_32")
 
 	CreateProject({serverside = false})
-		links("cpp_redis")
+		links({"cpp_redis", "tacopie"})
 		includedirs(REDIS_FOLDER .. "/includes")
 		IncludeLuaShared()
 
@@ -33,7 +34,10 @@ CreateWorkspace({name = "redis.core"})
 
 	project("cpp_redis")
 		kind("StaticLib")
-		includedirs(REDIS_FOLDER .. "/includes")
+		includedirs({
+			REDIS_FOLDER .. "/includes",
+			TACOPIE_FOLDER .. "/includes"
+		})
 		files({
 			REDIS_FOLDER .. "/sources/*.cpp",
 			REDIS_FOLDER .. "/sources/builders/*.cpp",
@@ -44,9 +48,30 @@ CreateWorkspace({name = "redis.core"})
 			["Source files/*"] = REDIS_FOLDER .. "/sources/**.cpp",
 			["Header files/*"] = REDIS_FOLDER .. "/includes/cpp_redis/**.hpp"
 		})
+		links("tacopie")
 
 		filter("system:windows")
 			files(REDIS_FOLDER .. "/sources/network/windows_impl/*.cpp")
 
 		filter("system:not windows")
 			files(REDIS_FOLDER .. "/sources/network/unix_impl/*.cpp")
+
+	project("tacopie")
+		kind("StaticLib")
+		includedirs(TACOPIE_FOLDER .. "/includes")
+		files({
+			TACOPIE_FOLDER .. "/sources/*.cpp",
+			TACOPIE_FOLDER .. "/sources/utils/*.cpp",
+			TACOPIE_FOLDER .. "/sources/network/*.cpp",
+			TACOPIE_FOLDER .. "/includes/tacopie/**.hpp"
+		})
+		vpaths({
+			["Source files/*"] = TACOPIE_FOLDER .. "/sources/**.cpp",
+			["Header files/*"] = TACOPIE_FOLDER .. "/includes/tacopie/**.hpp"
+		})
+
+		filter("system:windows")
+			files(TACOPIE_FOLDER .. "/sources/network/windows/*.cpp")
+
+		filter("system:not windows")
+			files(TACOPIE_FOLDER .. "/sources/network/unix/*.cpp")
