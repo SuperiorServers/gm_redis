@@ -49,26 +49,17 @@ private:
 	moodycamel::ReaderWriterQueue<Response> queue;
 };
 
-struct UserData
-{
-	cpp_redis::redis_client *client;
-	uint8_t type;
-	Container *container;
-};
-
 static const char metaname[] = "redis_client";
-static const uint8_t metatype = 127;
+static int32_t metatype = GarrysMod::Lua::Type::NONE;
 static const char invalid_error[] = "invalid redis_client";
 static const char table_name[] = "redis_clients";
 
 LUA_FUNCTION( Create )
 {
 	Container *container = nullptr;
-	cpp_redis::redis_client *client = nullptr;
 	try
 	{
 		container = new Container;
-		client = &container->GetClient( );
 	}
 	catch( const cpp_redis::redis_error &e )
 	{
@@ -77,19 +68,16 @@ LUA_FUNCTION( Create )
 		return 2;
 	}
 
-	UserData *udata = static_cast<UserData *>( LUA->NewUserdata( sizeof( UserData ) ) );
-	udata->client = client;
-	udata->container = container;
-	udata->type = metatype;
+	LUA->PushUserType( container, metatype );
 
-	LUA->CreateMetaTableType( metaname, metatype );
+	LUA->PushMetaTable( metatype );
 	LUA->SetMetaTable( -2 );
 
 	LUA->CreateTable( );
-	lua_setfenv( state, -2 );
+	lua_setfenv( LUA->state, -2 );
 
 	LUA->GetField( GarrysMod::Lua::INDEX_REGISTRY, table_name );
-	LUA->PushUserdata( client );
+	LUA->PushUserdata( &container->GetClient( ) );
 	LUA->Push( -3 );
 	LUA->SetTable( -4 );
 	LUA->Pop( );
@@ -97,48 +85,47 @@ LUA_FUNCTION( Create )
 	return 1;
 }
 
-inline void CheckType( lua_State *state, int32_t index )
+inline void CheckType( GarrysMod::Lua::ILuaBase *LUA, int32_t index )
 {
 	if( !LUA->IsType( index, metatype ) )
-		luaL_typerror( state, index, metaname );
+		luaL_typerror( LUA->state, index, metaname );
 }
 
-inline UserData *GetUserData( lua_State *state, int index )
+inline Container *GetUserData( GarrysMod::Lua::ILuaBase *LUA, int index )
 {
-	return static_cast<UserData *>( LUA->GetUserdata( index ) );
+	return LUA->GetUserType<Container>( index, metatype );
 }
 
-static cpp_redis::redis_client *Get( lua_State *state, int32_t index, Container **container = nullptr )
+static cpp_redis::redis_client *Get( GarrysMod::Lua::ILuaBase *LUA, int32_t index, Container **container = nullptr )
 {
-	CheckType( state, index );
-	UserData *udata = GetUserData( state, index );
-	cpp_redis::redis_client *client = udata->client;
-	if( client == nullptr )
+	CheckType( LUA, index );
+	Container *udata = GetUserData( LUA, index );
+	if( udata == nullptr )
 		LUA->ArgError( index, invalid_error );
 
 	if( container != nullptr )
-		*container = udata->container;
+		*container = udata;
 
-	return client;
+	return &udata->GetClient( );
 }
 
 LUA_FUNCTION_STATIC( tostring )
 {
-	lua_pushfstring( state, redis::tostring_format, metaname, Get( state, 1 ) );
+	lua_pushfstring( LUA->state, redis::tostring_format, metaname, Get( LUA, 1 ) );
 	return 1;
 }
 
 LUA_FUNCTION_STATIC( eq )
 {
-	LUA->PushBool( Get( state, 1 ) == Get( state, 2 ) );
+	LUA->PushBool( Get( LUA, 1 ) == Get( LUA, 2 ) );
 	return 1;
 }
 
 LUA_FUNCTION_STATIC( index )
 {
-	CheckType( state, 1 );
+	CheckType( LUA, 1 );
 
-	LUA->CreateMetaTableType( metaname, metatype );
+	LUA->PushMetaTable( metatype );
 	LUA->Push( 2 );
 	LUA->RawGet( -2 );
 	if( !LUA->IsType( -1, GarrysMod::Lua::Type::NIL ) )
@@ -146,7 +133,7 @@ LUA_FUNCTION_STATIC( index )
 
 	LUA->Pop( 2 );
 
-	lua_getfenv( state, 1 );
+	lua_getfenv( LUA->state, 1 );
 	LUA->Push( 2 );
 	LUA->RawGet( -2 );
 	return 1;
@@ -154,9 +141,9 @@ LUA_FUNCTION_STATIC( index )
 
 LUA_FUNCTION_STATIC( newindex )
 {
-	CheckType( state, 1 );
+	CheckType( LUA, 1 );
 
-	lua_getfenv( state, 1 );
+	lua_getfenv( LUA->state, 1 );
 	LUA->Push( 2 );
 	LUA->Push( 3 );
 	LUA->RawSet( -3 );
@@ -165,27 +152,27 @@ LUA_FUNCTION_STATIC( newindex )
 
 LUA_FUNCTION_STATIC( gc )
 {
-	UserData *userdata = GetUserData( state, 1 );
-	cpp_redis::redis_client *client = userdata->client;
-	if( client == nullptr )
+	Container *udata = GetUserData( LUA, 1 );
+	if( udata == nullptr )
 		return 0;
 
-	userdata->client = nullptr;
-	delete userdata->container;
-	userdata->container = nullptr;
+	delete udata;
+
+	LUA->SetUserType( 1, nullptr );
+
 	return 0;
 }
 
 LUA_FUNCTION_STATIC( IsValid )
 {
-	cpp_redis::redis_client *client = Get( state, 1 );
+	cpp_redis::redis_client *client = Get( LUA, 1 );
 	LUA->PushBool( client != nullptr );
 	return 1;
 }
 
 LUA_FUNCTION_STATIC( IsConnected )
 {
-	cpp_redis::redis_client *client = Get( state, 1 );
+	cpp_redis::redis_client *client = Get( LUA, 1 );
 	LUA->PushBool( client->is_connected( ) );
 	return 1;
 }
@@ -193,7 +180,7 @@ LUA_FUNCTION_STATIC( IsConnected )
 LUA_FUNCTION_STATIC( Connect )
 {
 	Container *container = nullptr;
-	cpp_redis::redis_client *client = Get( state, 1, &container );
+	cpp_redis::redis_client *client = Get( LUA, 1, &container );
 	const char *host = LUA->CheckString( 2 );
 	size_t port = static_cast<size_t>( LUA->CheckNumber( 3 ) );
 
@@ -217,12 +204,12 @@ LUA_FUNCTION_STATIC( Connect )
 
 LUA_FUNCTION_STATIC( Disconnect )
 {
-	cpp_redis::redis_client *client = Get( state, 1 );
+	cpp_redis::redis_client *client = Get( LUA, 1 );
 	client->disconnect( );
 	return 0;
 }
 
-inline void BuildTable( lua_State *state, const std::vector<cpp_redis::reply> &replies )
+inline void BuildTable( GarrysMod::Lua::ILuaBase *LUA, const std::vector<cpp_redis::reply> &replies )
 {
 	LUA->CreateTable( );
 
@@ -244,7 +231,7 @@ inline void BuildTable( lua_State *state, const std::vector<cpp_redis::reply> &r
 			break;
 
 		case cpp_redis::reply::type::array:
-			BuildTable( state, reply.as_array( ) );
+			BuildTable( LUA, reply.as_array( ) );
 			break;
 
 		case cpp_redis::reply::type::null:
@@ -259,7 +246,7 @@ inline void BuildTable( lua_State *state, const std::vector<cpp_redis::reply> &r
 LUA_FUNCTION_STATIC( Poll )
 {
 	Container *container = nullptr;
-	Get( state, 1, &container );
+	Get( LUA, 1, &container );
 
 	LUA->GetField( GarrysMod::Lua::INDEX_GLOBAL, "debug" );
 	LUA->GetField( -1, "traceback" );
@@ -271,7 +258,7 @@ LUA_FUNCTION_STATIC( Poll )
 		switch( response.type )
 		{
 		case Action::Disconnection:
-			if( !redis::GetMetaField( state, 1, "OnDisconnected" ) )
+			if( !redis::GetMetaField( LUA, 1, "OnDisconnected" ) )
 				break;
 
 			LUA->Push( 1 );
@@ -298,7 +285,7 @@ LUA_FUNCTION_STATIC( Poll )
 				break;
 
 			case cpp_redis::reply::type::array:
-				BuildTable( state, response.reply.as_array( ) );
+				BuildTable( LUA, response.reply.as_array( ) );
 				break;
 
 			case cpp_redis::reply::type::null:
@@ -323,13 +310,13 @@ LUA_FUNCTION_STATIC( Poll )
 	return 1;
 }
 
-inline const char *ToString( lua_State *state, int32_t idx, size_t *len = nullptr )
+inline const char *ToString( GarrysMod::Lua::ILuaBase *LUA, int32_t idx, size_t *len = nullptr )
 {
-	if( luaL_callmeta( state, idx, "__tostring" ) == 0 )
+	if( luaL_callmeta( LUA->state, idx, "__tostring" ) == 0 )
 		switch( LUA->GetType( idx ) )
 		{
 		case GarrysMod::Lua::Type::NUMBER:
-			lua_pushfstring( state, "%f", LUA->GetNumber( idx ) );
+			lua_pushfstring( LUA->state, "%f", LUA->GetNumber( idx ) );
 			break;
 
 		case GarrysMod::Lua::Type::STRING:
@@ -345,7 +332,7 @@ inline const char *ToString( lua_State *state, int32_t idx, size_t *len = nullpt
 			break;
 
 		default:
-			lua_pushfstring( state, "%s: %p", LUA->GetTypeName( LUA->GetType( idx ) ), lua_topointer( state, idx ) );
+			lua_pushfstring( LUA->state, "%s: %p", LUA->GetTypeName( LUA->GetType( idx ) ), lua_topointer( LUA->state, idx ) );
 			break;
 		}
 
@@ -355,7 +342,7 @@ inline const char *ToString( lua_State *state, int32_t idx, size_t *len = nullpt
 LUA_FUNCTION_STATIC( Send )
 {
 	Container *container = nullptr;
-	cpp_redis::redis_client *client = Get( state, 1, &container );
+	cpp_redis::redis_client *client = Get( LUA, 1, &container );
 
 	int32_t reference = LUA_TNONE;
 	if( LUA->Top( ) >= 3 && !LUA->IsType( 3, GarrysMod::Lua::Type::NIL ) )
@@ -380,14 +367,14 @@ LUA_FUNCTION_STATIC( Send )
 					break;
 				}
 
-				keys.push_back( ToString( state, -1 ) );
+				keys.push_back( ToString( LUA, -1 ) );
 				LUA->Pop( 2 );
 				++k;
 			}
 			while( true );
 		}
 		else
-			keys.push_back( ToString( state, 2 ) );
+			keys.push_back( ToString( LUA, 2 ) );
 
 		if( reference != LUA_TNONE )
 		{
@@ -427,7 +414,7 @@ LUA_FUNCTION_STATIC( Send )
 
 LUA_FUNCTION_STATIC( Commit )
 {
-	cpp_redis::redis_client *client = Get( state, 1 );
+	cpp_redis::redis_client *client = Get( LUA, 1 );
 
 	try
 	{
@@ -444,9 +431,9 @@ LUA_FUNCTION_STATIC( Commit )
 	return 1;
 }
 
-void Initialize( lua_State *state )
+void Initialize( GarrysMod::Lua::ILuaBase *LUA )
 {
-	LUA->CreateMetaTableType( metaname, metatype );
+	metatype = LUA->CreateMetaTable( metaname );
 
 	LUA->PushCFunction( tostring );
 	LUA->SetField( -2, "__tostring" );
@@ -490,7 +477,7 @@ void Initialize( lua_State *state )
 	LUA->Pop( 1 );
 }
 
-void Deinitialize( lua_State *state )
+void Deinitialize( GarrysMod::Lua::ILuaBase *LUA )
 {
 	LUA->PushNil( );
 	LUA->SetField( GarrysMod::Lua::INDEX_REGISTRY, metaname );

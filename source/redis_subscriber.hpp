@@ -2,13 +2,19 @@
 
 #include <cstdint>
 
-struct lua_State;
+namespace GarrysMod
+{
+	namespace Lua
+	{
+		class ILuaBase;
+	}
+}
 
 namespace redis_subscriber
 {
 
-void Initialize( lua_State *state );
-void Deinitialize( lua_State *state );
-int32_t Create( lua_State *state ) noexcept;
+void Initialize( GarrysMod::Lua::ILuaBase *LUA );
+void Deinitialize( GarrysMod::Lua::ILuaBase *LUA );
+LUA_FUNCTION_DECLARE( Create );
 
 }
