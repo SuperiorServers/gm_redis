@@ -15,7 +15,6 @@ local REDIS_FOLDER = "../cpp_redis"
 local TACOPIE_FOLDER = "../cpp_redis/tacopie"
 
 CreateWorkspace({name = "redis.core"})
-	flags("C++11")
 	CreateProject({serverside = true})
 		links({"cpp_redis", "tacopie"})
 		includedirs(REDIS_FOLDER .. "/includes")

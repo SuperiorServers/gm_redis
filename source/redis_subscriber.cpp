@@ -73,7 +73,7 @@ LUA_FUNCTION( Create )
 	LUA->SetMetaTable( -2 );
 
 	LUA->CreateTable( );
-	lua_setfenv( LUA->state, -2 );
+	lua_setfenv( LUA->GetState( ), -2 );
 
 	LUA->GetField( GarrysMod::Lua::INDEX_REGISTRY, table_name );
 	LUA->PushUserdata( &container->GetSubscriber( ) );
@@ -87,7 +87,7 @@ LUA_FUNCTION( Create )
 inline void CheckType( GarrysMod::Lua::ILuaBase *LUA, int32_t index )
 {
 	if( !LUA->IsType( index, metatype ) )
-		luaL_typerror( LUA->state, index, metaname );
+		luaL_typerror( LUA->GetState( ), index, metaname );
 }
 
 inline Container *GetUserData( GarrysMod::Lua::ILuaBase *LUA, int index )
@@ -110,7 +110,7 @@ static cpp_redis::redis_subscriber *Get( GarrysMod::Lua::ILuaBase *LUA, int32_t 
 
 LUA_FUNCTION_STATIC( tostring )
 {
-	lua_pushfstring( LUA->state, redis::tostring_format, metaname, Get( LUA, 1 ) );
+	lua_pushfstring( LUA->GetState( ), redis::tostring_format, metaname, Get( LUA, 1 ) );
 	return 1;
 }
 
@@ -132,7 +132,7 @@ LUA_FUNCTION_STATIC( index )
 
 	LUA->Pop( 2 );
 
-	lua_getfenv( LUA->state, 1 );
+	lua_getfenv( LUA->GetState( ), 1 );
 	LUA->Push( 2 );
 	LUA->RawGet( -2 );
 	return 1;
@@ -142,7 +142,7 @@ LUA_FUNCTION_STATIC( newindex )
 {
 	CheckType( LUA, 1 );
 
-	lua_getfenv( LUA->state, 1 );
+	lua_getfenv( LUA->GetState( ), 1 );
 	LUA->Push( 2 );
 	LUA->Push( 3 );
 	LUA->RawSet( -3 );

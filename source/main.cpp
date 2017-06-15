@@ -7,8 +7,8 @@
 namespace redis
 {
 
-static const char *version = "redis 1.0.1";
-static uint32_t version_number = 10001;
+static const char *version = "redis 1.0.2";
+static uint32_t version_number = 10002;
 static const char *table_name = "redis";
 
 #if defined _WIN32
@@ -34,7 +34,7 @@ bool GetMetaField( GarrysMod::Lua::ILuaBase *LUA, int32_t idx, const char *metaf
 
 	LUA->Pop( 2 );
 
-	lua_getfenv( LUA->state, idx );
+	lua_getfenv( LUA->GetState( ), idx );
 	LUA->PushString( metafield );
 	LUA->RawGet( -2 );
 	if( LUA->IsType( -1, GarrysMod::Lua::Type::FUNCTION ) )

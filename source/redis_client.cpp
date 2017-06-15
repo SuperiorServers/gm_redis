@@ -74,7 +74,7 @@ LUA_FUNCTION( Create )
 	LUA->SetMetaTable( -2 );
 
 	LUA->CreateTable( );
-	lua_setfenv( LUA->state, -2 );
+	lua_setfenv( LUA->GetState( ), -2 );
 
 	LUA->GetField( GarrysMod::Lua::INDEX_REGISTRY, table_name );
 	LUA->PushUserdata( &container->GetClient( ) );
@@ -88,7 +88,7 @@ LUA_FUNCTION( Create )
 inline void CheckType( GarrysMod::Lua::ILuaBase *LUA, int32_t index )
 {
 	if( !LUA->IsType( index, metatype ) )
-		luaL_typerror( LUA->state, index, metaname );
+		luaL_typerror( LUA->GetState( ), index, metaname );
 }
 
 inline Container *GetUserData( GarrysMod::Lua::ILuaBase *LUA, int index )
@@ -111,7 +111,7 @@ static cpp_redis::redis_client *Get( GarrysMod::Lua::ILuaBase *LUA, int32_t inde
 
 LUA_FUNCTION_STATIC( tostring )
 {
-	lua_pushfstring( LUA->state, redis::tostring_format, metaname, Get( LUA, 1 ) );
+	lua_pushfstring( LUA->GetState( ), redis::tostring_format, metaname, Get( LUA, 1 ) );
 	return 1;
 }
 
@@ -133,7 +133,7 @@ LUA_FUNCTION_STATIC( index )
 
 	LUA->Pop( 2 );
 
-	lua_getfenv( LUA->state, 1 );
+	lua_getfenv( LUA->GetState( ), 1 );
 	LUA->Push( 2 );
 	LUA->RawGet( -2 );
 	return 1;
@@ -143,7 +143,7 @@ LUA_FUNCTION_STATIC( newindex )
 {
 	CheckType( LUA, 1 );
 
-	lua_getfenv( LUA->state, 1 );
+	lua_getfenv( LUA->GetState( ), 1 );
 	LUA->Push( 2 );
 	LUA->Push( 3 );
 	LUA->RawSet( -3 );
@@ -312,11 +312,11 @@ LUA_FUNCTION_STATIC( Poll )
 
 inline const char *ToString( GarrysMod::Lua::ILuaBase *LUA, int32_t idx, size_t *len = nullptr )
 {
-	if( luaL_callmeta( LUA->state, idx, "__tostring" ) == 0 )
+	if( luaL_callmeta( LUA->GetState( ), idx, "__tostring" ) == 0 )
 		switch( LUA->GetType( idx ) )
 		{
 		case GarrysMod::Lua::Type::NUMBER:
-			lua_pushfstring( LUA->state, "%f", LUA->GetNumber( idx ) );
+			lua_pushfstring( LUA->GetState( ), "%f", LUA->GetNumber( idx ) );
 			break;
 
 		case GarrysMod::Lua::Type::STRING:
@@ -332,7 +332,7 @@ inline const char *ToString( GarrysMod::Lua::ILuaBase *LUA, int32_t idx, size_t 
 			break;
 
 		default:
-			lua_pushfstring( LUA->state, "%s: %p", LUA->GetTypeName( LUA->GetType( idx ) ), lua_topointer( LUA->state, idx ) );
+			lua_pushfstring( LUA->GetState( ), "%s: %p", LUA->GetTypeName( LUA->GetType( idx ) ), lua_topointer( LUA->GetState( ), idx ) );
 			break;
 		}
 
