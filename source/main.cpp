@@ -1,23 +1,22 @@
 #include <GarrysMod/Lua/Interface.h>
-#include <main.hpp>
-#include <redis_client.hpp>
-#include <redis_subscriber.hpp>
-#include <lua.hpp>
+#include "redis_client.hpp"
+#include "redis_subscriber.hpp"
+#include "main.hpp"
 
 namespace redis
 {
 
-static const char *version = "redis 1.0.2";
-static uint32_t version_number = 10002;
-static const char *table_name = "redis";
+static const char version[] = "redis 1.0.3";
+static const uint32_t version_number = 10003;
+static const char table_name[] = "redis";
 
 #if defined _WIN32
 
-const char *tostring_format = "%s: 0x%p";
+const char tostring_format[] = "%s: 0x%p";
 
 #elif defined __linux || defined __APPLE__
 
-const char *tostring_format = "%s: %p";
+const char tostring_format[] = "%s: %p";
 
 #endif
 
@@ -34,7 +33,7 @@ bool GetMetaField( GarrysMod::Lua::ILuaBase *LUA, int32_t idx, const char *metaf
 
 	LUA->Pop( 2 );
 
-	lua_getfenv( LUA->GetState( ), idx );
+	LUA->GetFEnv( idx );
 	LUA->PushString( metafield );
 	LUA->RawGet( -2 );
 	if( LUA->IsType( -1, GarrysMod::Lua::Type::FUNCTION ) )
