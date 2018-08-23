@@ -1,13 +1,12 @@
 #include <GarrysMod/Lua/Interface.h>
 #include <GarrysMod/Lua/LuaInterface.h>
-#include <redis_subscriber.hpp>
-#include <main.hpp>
-#include <cstdint>
-#include <lua.hpp>
 #include <cpp_redis/cpp_redis>
-#include <readerwriterqueue.hpp>
+#include <cstdint>
 #include <vector>
 #include <memory>
+#include "readerwriterqueue.hpp"
+#include "redis_subscriber.hpp"
+#include "main.hpp"
 
 namespace redis_subscriber
 {
@@ -28,7 +27,7 @@ struct Response
 class Container
 {
 public:
-	cpp_redis::redis_subscriber &GetSubscriber( )
+	cpp_redis::subscriber &GetSubscriber( )
 	{
 		return subscriber;
 	}
@@ -44,7 +43,7 @@ public:
 	}
 
 private:
-	cpp_redis::redis_subscriber subscriber;
+	cpp_redis::subscriber subscriber;
 	moodycamel::ReaderWriterQueue<Response> queue;
 };
 
@@ -95,7 +94,7 @@ inline Container *GetUserData( GarrysMod::Lua::ILuaBase *LUA, int index )
 	return LUA->GetUserType<Container>( index, metatype );
 }
 
-static cpp_redis::redis_subscriber *Get( GarrysMod::Lua::ILuaBase *LUA, int32_t index, Container **container = nullptr )
+static cpp_redis::subscriber *Get( GarrysMod::Lua::ILuaBase *LUA, int32_t index, Container **container = nullptr )
 {
 	CheckType( LUA, index );
 	Container *udata = GetUserData( LUA, index );
@@ -110,7 +109,7 @@ static cpp_redis::redis_subscriber *Get( GarrysMod::Lua::ILuaBase *LUA, int32_t 
 
 LUA_FUNCTION_STATIC( tostring )
 {
-	lua_pushfstring( LUA->GetState( ), redis::tostring_format, metaname, Get( LUA, 1 ) );
+	LUA->PushFormattedString( redis::tostring_format, metaname, Get( LUA, 1 ) );
 	return 1;
 }
 
@@ -164,14 +163,14 @@ LUA_FUNCTION_STATIC( gc )
 
 LUA_FUNCTION_STATIC( IsValid )
 {
-	cpp_redis::redis_subscriber *subscriber = Get( LUA, 1 );
+	cpp_redis::subscriber *subscriber = Get( LUA, 1 );
 	LUA->PushBool( subscriber != nullptr );
 	return 1;
 }
 
 LUA_FUNCTION_STATIC( IsConnected )
 {
-	cpp_redis::redis_subscriber *subscriber = Get( LUA, 1 );
+	cpp_redis::subscriber *subscriber = Get( LUA, 1 );
 	LUA->PushBool( subscriber->is_connected( ) );
 	return 1;
 }
@@ -179,13 +178,13 @@ LUA_FUNCTION_STATIC( IsConnected )
 LUA_FUNCTION_STATIC( Connect )
 {
 	Container *container = nullptr;
-	cpp_redis::redis_subscriber *subscriber = Get( LUA, 1, &container );
+	cpp_redis::subscriber *subscriber = Get( LUA, 1, &container );
 	const char *host = LUA->CheckString( 2 );
 	size_t port = static_cast<size_t>( LUA->CheckNumber( 3 ) );
 
 	try
 	{
-		subscriber->connect( host, port, [container]( cpp_redis::redis_subscriber & )
+		subscriber->connect( host, port, [container]( auto, auto, auto )
 		{
 			container->EnqueueResponse( { Action::Disconnection } );
 		} );
@@ -203,7 +202,7 @@ LUA_FUNCTION_STATIC( Connect )
 
 LUA_FUNCTION_STATIC( Disconnect )
 {
-	cpp_redis::redis_subscriber *subscriber = Get( LUA, 1 );
+	cpp_redis::subscriber *subscriber = Get( LUA, 1 );
 	subscriber->disconnect( );
 	return 0;
 }
@@ -261,7 +260,7 @@ LUA_FUNCTION_STATIC( Poll )
 LUA_FUNCTION_STATIC( Subscribe )
 {
 	Container *container = nullptr;
-	cpp_redis::redis_subscriber *subscriber = Get( LUA, 1, &container );
+	cpp_redis::subscriber *subscriber = Get( LUA, 1, &container );
 	const char *channel = LUA->CheckString( 2 );
 
 	try
@@ -284,7 +283,7 @@ LUA_FUNCTION_STATIC( Subscribe )
 
 LUA_FUNCTION_STATIC( Unsubscribe )
 {
-	cpp_redis::redis_subscriber *subscriber = Get( LUA, 1 );
+	cpp_redis::subscriber *subscriber = Get( LUA, 1 );
 	const char *channel = LUA->CheckString( 2 );
 
 	try
@@ -305,7 +304,7 @@ LUA_FUNCTION_STATIC( Unsubscribe )
 LUA_FUNCTION_STATIC( PSubscribe )
 {
 	Container *container = nullptr;
-	cpp_redis::redis_subscriber *subscriber = Get( LUA, 1, &container );
+	cpp_redis::subscriber *subscriber = Get( LUA, 1, &container );
 	const char *channel = LUA->CheckString( 2 );
 
 	try
@@ -328,7 +327,7 @@ LUA_FUNCTION_STATIC( PSubscribe )
 
 LUA_FUNCTION_STATIC( PUnsubscribe )
 {
-	cpp_redis::redis_subscriber *subscriber = Get( LUA, 1 );
+	cpp_redis::subscriber *subscriber = Get( LUA, 1 );
 	const char *channel = LUA->CheckString( 2 );
 
 	try
@@ -348,7 +347,7 @@ LUA_FUNCTION_STATIC( PUnsubscribe )
 
 LUA_FUNCTION_STATIC( Commit )
 {
-	cpp_redis::redis_subscriber *subscriber = Get( LUA, 1 );
+	cpp_redis::subscriber *subscriber = Get( LUA, 1 );
 
 	try
 	{

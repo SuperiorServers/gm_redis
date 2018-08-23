@@ -1,13 +1,12 @@
 #include <GarrysMod/Lua/Interface.h>
 #include <GarrysMod/Lua/LuaInterface.h>
-#include <redis_client.hpp>
-#include <main.hpp>
-#include <cstdint>
-#include <lua.hpp>
 #include <cpp_redis/cpp_redis>
-#include <readerwriterqueue.hpp>
+#include <cstdint>
 #include <vector>
 #include <memory>
+#include "readerwriterqueue.hpp"
+#include "redis_client.hpp"
+#include "main.hpp"
 
 namespace redis_client
 {
@@ -29,7 +28,7 @@ struct Response
 class Container
 {
 public:
-	cpp_redis::redis_client &GetClient( )
+	cpp_redis::client &GetClient( )
 	{
 		return client;
 	}
@@ -45,7 +44,7 @@ public:
 	}
 
 private:
-	cpp_redis::redis_client client;
+	cpp_redis::client client;
 	moodycamel::ReaderWriterQueue<Response> queue;
 };
 
@@ -96,7 +95,7 @@ inline Container *GetUserData( GarrysMod::Lua::ILuaBase *LUA, int index )
 	return LUA->GetUserType<Container>( index, metatype );
 }
 
-static cpp_redis::redis_client *Get( GarrysMod::Lua::ILuaBase *LUA, int32_t index, Container **container = nullptr )
+static cpp_redis::client *Get( GarrysMod::Lua::ILuaBase *LUA, int32_t index, Container **container = nullptr )
 {
 	CheckType( LUA, index );
 	Container *udata = GetUserData( LUA, index );
@@ -111,7 +110,7 @@ static cpp_redis::redis_client *Get( GarrysMod::Lua::ILuaBase *LUA, int32_t inde
 
 LUA_FUNCTION_STATIC( tostring )
 {
-	lua_pushfstring( LUA->GetState( ), redis::tostring_format, metaname, Get( LUA, 1 ) );
+	LUA->PushFormattedString( redis::tostring_format, metaname, Get( LUA, 1 ) );
 	return 1;
 }
 
@@ -165,14 +164,14 @@ LUA_FUNCTION_STATIC( gc )
 
 LUA_FUNCTION_STATIC( IsValid )
 {
-	cpp_redis::redis_client *client = Get( LUA, 1 );
+	cpp_redis::client *client = Get( LUA, 1 );
 	LUA->PushBool( client != nullptr );
 	return 1;
 }
 
 LUA_FUNCTION_STATIC( IsConnected )
 {
-	cpp_redis::redis_client *client = Get( LUA, 1 );
+	cpp_redis::client *client = Get( LUA, 1 );
 	LUA->PushBool( client->is_connected( ) );
 	return 1;
 }
@@ -180,13 +179,13 @@ LUA_FUNCTION_STATIC( IsConnected )
 LUA_FUNCTION_STATIC( Connect )
 {
 	Container *container = nullptr;
-	cpp_redis::redis_client *client = Get( LUA, 1, &container );
+	cpp_redis::client *client = Get( LUA, 1, &container );
 	const char *host = LUA->CheckString( 2 );
 	size_t port = static_cast<size_t>( LUA->CheckNumber( 3 ) );
 
 	try
 	{
-		client->connect( host, port, [container]( cpp_redis::redis_client & )
+		client->connect( host, port, [container]( auto, auto, auto )
 		{
 			container->EnqueueResponse( { Action::Disconnection } );
 		} );
@@ -204,7 +203,7 @@ LUA_FUNCTION_STATIC( Connect )
 
 LUA_FUNCTION_STATIC( Disconnect )
 {
-	cpp_redis::redis_client *client = Get( LUA, 1 );
+	cpp_redis::client *client = Get( LUA, 1 );
 	client->disconnect( );
 	return 0;
 }
@@ -312,11 +311,11 @@ LUA_FUNCTION_STATIC( Poll )
 
 inline const char *ToString( GarrysMod::Lua::ILuaBase *LUA, int32_t idx, size_t *len = nullptr )
 {
-	if( luaL_callmeta( LUA->GetState( ), idx, "__tostring" ) == 0 )
+	if( LUA->CallMeta( idx, "__tostring" ) == 0 )
 		switch( LUA->GetType( idx ) )
 		{
 		case GarrysMod::Lua::Type::NUMBER:
-			lua_pushfstring( LUA->GetState( ), "%f", LUA->GetNumber( idx ) );
+			LUA->PushFormattedString( "%f", LUA->GetNumber( idx ) );
 			break;
 
 		case GarrysMod::Lua::Type::STRING:
@@ -332,7 +331,7 @@ inline const char *ToString( GarrysMod::Lua::ILuaBase *LUA, int32_t idx, size_t 
 			break;
 
 		default:
-			lua_pushfstring( LUA->GetState( ), "%s: %p", LUA->GetTypeName( LUA->GetType( idx ) ), lua_topointer( LUA->GetState( ), idx ) );
+			LUA->PushFormattedString( "%s: %p", LUA->GetTypeName( LUA->GetType( idx ) ), lua_topointer( LUA->GetState( ), idx ) );
 			break;
 		}
 
@@ -342,9 +341,9 @@ inline const char *ToString( GarrysMod::Lua::ILuaBase *LUA, int32_t idx, size_t 
 LUA_FUNCTION_STATIC( Send )
 {
 	Container *container = nullptr;
-	cpp_redis::redis_client *client = Get( LUA, 1, &container );
+	cpp_redis::client *client = Get( LUA, 1, &container );
 
-	int32_t reference = LUA_TNONE;
+	int32_t reference = GarrysMod::Lua::Type::NONE;
 	if( LUA->Top( ) >= 3 && !LUA->IsType( 3, GarrysMod::Lua::Type::NIL ) )
 	{
 		LUA->CheckType( 3, GarrysMod::Lua::Type::FUNCTION );
@@ -376,7 +375,7 @@ LUA_FUNCTION_STATIC( Send )
 		else
 			keys.push_back( ToString( LUA, 2 ) );
 
-		if( reference != LUA_TNONE )
+		if( reference != GarrysMod::Lua::Type::NONE )
 		{
 			try
 			{
@@ -414,7 +413,7 @@ LUA_FUNCTION_STATIC( Send )
 
 LUA_FUNCTION_STATIC( Commit )
 {
-	cpp_redis::redis_client *client = Get( LUA, 1 );
+	cpp_redis::client *client = Get( LUA, 1 );
 
 	try
 	{
