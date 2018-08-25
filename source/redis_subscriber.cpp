@@ -184,9 +184,12 @@ LUA_FUNCTION_STATIC( Connect )
 
 	try
 	{
-		subscriber->connect( host, port, [container]( auto, auto, auto )
+		subscriber->connect( host, port, [container]( auto, auto, auto status )
 		{
-			container->EnqueueResponse( { Action::Disconnection } );
+			using state = cpp_redis::subscriber::connect_state;
+			if( status == state::dropped || status == state::failed ||
+				status == state::lookup_failed || status == state::stopped )
+				container->EnqueueResponse( { Action::Disconnection } );
 		} );
 	}
 	catch( const cpp_redis::redis_error &e )
