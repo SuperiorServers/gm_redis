@@ -187,7 +187,7 @@ LUA_FUNCTION_STATIC( Connect )
 	{
 		client->connect( host, port, [container]( auto, auto, auto status )
 		{
-			using state = cpp_redis::client::connect_state;
+			using state = cpp_redis::connect_state;
 			if( status == state::dropped || status == state::failed ||
 				status == state::lookup_failed || status == state::stopped )
 				container->EnqueueResponse( { Action::Disconnection } );
@@ -264,8 +264,17 @@ LUA_FUNCTION_STATIC( Poll )
 				break;
 
 			LUA->Push( 1 );
-			if( LUA->PCall( 1, 1, -3 ) != 0 )
-				static_cast<GarrysMod::Lua::ILuaInterface *>( LUA )->ErrorNoHalt( "\n[redis subscriber callback error] %s\n\n", LUA->GetString( -1 ) );
+			if (LUA->PCall(1, 1, -3) != 0)
+			{
+				const char* err = LUA->GetString(-1);
+				LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
+				LUA->GetField(-1, "ErrorNoHalt");
+				LUA->PushString("[redis client callback error] ");
+				LUA->PushString(err);
+				LUA->PushString("\n");
+				LUA->Call(3, 0);
+				LUA->Pop(2);
+			}
 
 			LUA->Pop( );
 			break;
@@ -297,8 +306,14 @@ LUA_FUNCTION_STATIC( Poll )
 
 			if( LUA->PCall( 2, 0, -4 ) != 0 )
 			{
-				static_cast<GarrysMod::Lua::ILuaInterface *>( LUA )->ErrorNoHalt( "\n[redis client callback error] %s\n\n", LUA->GetString( -1 ) );
-				LUA->Pop( );
+				const char* err = LUA->GetString(-1);
+				LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
+				LUA->GetField(-1, "ErrorNoHalt");
+				LUA->PushString("[redis client callback error] ");
+				LUA->PushString(err);
+				LUA->PushString("\n");
+				LUA->Call(3, 0);
+				LUA->Pop(2);
 			}
 
 			LUA->ReferenceFree( response.reference );
