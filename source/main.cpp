@@ -10,6 +10,9 @@ static const char version[] = "redis 1.0.3";
 static const uint32_t version_number = 10003;
 static const char table_name[] = "redis";
 
+int iRefErrorNoHalt		= 0;
+int iRefDebugTraceBack	= 0;
+
 #if defined _WIN32
 
 const char tostring_format[] = "%s: 0x%p";
@@ -46,10 +49,31 @@ bool GetMetaField( GarrysMod::Lua::ILuaBase *LUA, int32_t idx, const char *metaf
 	return false;
 }
 
+void ErrorNoHalt(GarrysMod::Lua::ILuaBase* LUA, const char* msg)
+{
+	const char* err = LUA->GetString(-1);
+	LUA->ReferencePush(redis::iRefErrorNoHalt);
+	LUA->PushString(msg);
+	LUA->PushString(err);
+	LUA->PushString("\n");
+	LUA->Call(3, 0);
+	LUA->Pop();
+}
+
 }
 
 GMOD_MODULE_OPEN( )
 {
+	LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
+	LUA->GetField(-1, "ErrorNoHalt");
+	redis::iRefErrorNoHalt = LUA->ReferenceCreate();
+
+	LUA->GetField(-1, "debug");
+	LUA->GetField(-1, "traceback");
+	redis::iRefDebugTraceBack = LUA->ReferenceCreate();
+
+	LUA->Pop(2);
+
 	redis_client::Initialize( LUA );
 	redis_subscriber::Initialize( LUA );
 
@@ -75,6 +99,9 @@ GMOD_MODULE_OPEN( )
 
 GMOD_MODULE_CLOSE( )
 {
+	LUA->ReferenceFree(redis::iRefDebugTraceBack);
+	LUA->ReferenceFree(redis::iRefErrorNoHalt);
+
 	LUA->PushNil( );
 	LUA->SetField( GarrysMod::Lua::INDEX_GLOBAL, redis::table_name );
 

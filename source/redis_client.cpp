@@ -250,33 +250,25 @@ LUA_FUNCTION_STATIC( Poll )
 	Container *container = nullptr;
 	Get( LUA, 1, &container );
 
-	LUA->GetField( GarrysMod::Lua::INDEX_GLOBAL, "debug" );
-	LUA->GetField( -1, "traceback" );
-
 	bool had_responses = false;
 	Response response;
 	while( container->DequeueResponse( response ) )
 	{		
+		LUA->ReferencePush(redis::iRefDebugTraceBack);
+
 		switch( response.type )
 		{
 		case Action::Disconnection:
-			if( !redis::GetMetaField( LUA, 1, "OnDisconnected" ) )
+			if (!redis::GetMetaField(LUA, 1, "OnDisconnected"))
+			{
+				LUA->Pop();
 				break;
+			}
 
 			LUA->Push( 1 );
 			if (LUA->PCall(1, 1, -3) != 0)
-			{
-				const char* err = LUA->GetString(-1);
-				LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
-				LUA->GetField(-1, "ErrorNoHalt");
-				LUA->PushString("[redis client callback error] ");
-				LUA->PushString(err);
-				LUA->PushString("\n");
-				LUA->Call(3, 0);
-				LUA->Pop(2);
-			}
+				redis::ErrorNoHalt(LUA, "[redis client callback error] ");
 
-			LUA->Pop( );
 			break;
 
 		case Action::Reply:
@@ -304,25 +296,21 @@ LUA_FUNCTION_STATIC( Poll )
 				break;
 			}
 
-			if( LUA->PCall( 2, 0, -4 ) != 0 )
-			{
-				const char* err = LUA->GetString(-1);
-				LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB);
-				LUA->GetField(-1, "ErrorNoHalt");
-				LUA->PushString("[redis client callback error] ");
-				LUA->PushString(err);
-				LUA->PushString("\n");
-				LUA->Call(3, 0);
-				LUA->Pop(2);
-			}
+			if (LUA->PCall(2, 0, -4) != 0)
+				redis::ErrorNoHalt(LUA, "[redis client callback error] ");
 
 			LUA->ReferenceFree( response.reference );
+
 			break;
+		default:
+			LUA->Pop();
 		}
 
 		had_responses = true;
 	}
 	
+	LUA->Pop();
+
 	LUA->PushBool( had_responses );
 	return 1;
 }
