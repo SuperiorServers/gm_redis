@@ -13,8 +13,8 @@ namespace GarrysMod
 namespace redis_client
 {
 
-void Initialize( GarrysMod::Lua::ILuaBase *LUA );
-void Deinitialize( GarrysMod::Lua::ILuaBase *LUAe );
-LUA_FUNCTION_DECLARE( Create );
+	void Initialize(GarrysMod::Lua::ILuaBase* LUA);
+	void Deinitialize(GarrysMod::Lua::ILuaBase* LUA);
+	LUA_FUNCTION_DECLARE(Create);
 
 }
