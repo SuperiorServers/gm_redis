@@ -23,52 +23,45 @@ CreateWorkspace({name = "redis.core"})
 		filter("system:windows")
 			links("ws2_32")
 
-	CreateProject({serverside = false})
-		links({"cpp_redis", "tacopie"})
-		includedirs({REDIS_FOLDER .. "/includes", TACOPIE_FOLDER .. "/includes"})
-		IncludeLuaShared()
+	group("dependencies")
+		project("cpp_redis")
+			kind("StaticLib")
+			includedirs({
+				REDIS_FOLDER .. "/includes",
+				TACOPIE_FOLDER .. "/includes"
+			})
+			files({
+				REDIS_FOLDER .. "/sources/**.cpp",
+				REDIS_FOLDER .. "/includes/cpp_redis/**"
+			})
+			vpaths({
+				["Source files/*"] = REDIS_FOLDER .. "/sources/**.cpp",
+				["Header files/*"] = REDIS_FOLDER .. "/includes/cpp_redis/**"
+			})
+			links("tacopie")
 
-		filter("system:windows")
-			links("ws2_32")
+			filter("system:windows")
+				files(REDIS_FOLDER .. "/sources/network/windows_impl/*.cpp")
 
-	project("cpp_redis")
-		kind("StaticLib")
-		includedirs({
-			REDIS_FOLDER .. "/includes",
-			TACOPIE_FOLDER .. "/includes"
-		})
-		files({
-			REDIS_FOLDER .. "/sources/**.cpp",
-			REDIS_FOLDER .. "/includes/cpp_redis/**"
-		})
-		vpaths({
-			["Source files/*"] = REDIS_FOLDER .. "/sources/**.cpp",
-			["Header files/*"] = REDIS_FOLDER .. "/includes/cpp_redis/**"
-		})
-		links("tacopie")
+			filter("system:not windows")
+				files(REDIS_FOLDER .. "/sources/network/unix_impl/*.cpp")
 
-		filter("system:windows")
-			files(REDIS_FOLDER .. "/sources/network/windows_impl/*.cpp")
+		project("tacopie")
+			kind("StaticLib")
+			includedirs(TACOPIE_FOLDER .. "/includes")
+			files({
+				TACOPIE_FOLDER .. "/sources/utils/*.cpp",
+				TACOPIE_FOLDER .. "/sources/network/*.cpp",
+				TACOPIE_FOLDER .. "/sources/network/common/*.cpp",
+				TACOPIE_FOLDER .. "/includes/tacopie/**"
+			})
+			vpaths({
+				["Source files/*"] = TACOPIE_FOLDER .. "/sources/**.cpp",
+				["Header files/*"] = TACOPIE_FOLDER .. "/includes/tacopie/**"
+			})
 
-		filter("system:not windows")
-			files(REDIS_FOLDER .. "/sources/network/unix_impl/*.cpp")
+			filter("system:windows")
+				files(TACOPIE_FOLDER .. "/sources/network/windows/*.cpp")
 
-	project("tacopie")
-		kind("StaticLib")
-		includedirs(TACOPIE_FOLDER .. "/includes")
-		files({
-			TACOPIE_FOLDER .. "/sources/utils/*.cpp",
-			TACOPIE_FOLDER .. "/sources/network/*.cpp",
-			TACOPIE_FOLDER .. "/sources/network/common/*.cpp",
-			TACOPIE_FOLDER .. "/includes/tacopie/**"
-		})
-		vpaths({
-			["Source files/*"] = TACOPIE_FOLDER .. "/sources/**.cpp",
-			["Header files/*"] = TACOPIE_FOLDER .. "/includes/tacopie/**"
-		})
-
-		filter("system:windows")
-			files(TACOPIE_FOLDER .. "/sources/network/windows/*.cpp")
-
-		filter("system:not windows")
-			files(TACOPIE_FOLDER .. "/sources/network/unix/*.cpp")
+			filter("system:not windows")
+				files(TACOPIE_FOLDER .. "/sources/network/unix/*.cpp")
