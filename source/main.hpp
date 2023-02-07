@@ -156,7 +156,7 @@ DerivedInterfaceMethod(int)::lua__tostring(GarrysMod::Lua::ILuaBase* LUA)
 {
 	BaseInterface* ptr = Get(LUA, 1, false);
 
-	if (ptr != nullptr)
+	if (ptr == nullptr)
 		LUA->PushFormattedString("[NULL %s]", m_metaTableName);
 	else
 		LUA->PushFormattedString("[%s: 0x%p]", m_metaTableName, ptr);
@@ -306,7 +306,7 @@ DerivedInterfaceMethod(int)::lua_Poll(GarrysMod::Lua::ILuaBase* LUA)
 			if (redis::PushCallback(LUA, ptr->m_refOnDisconnected, 1, "OnDisconnected"))
 			{
 				LUA->Push(1);
-				if (LUA->PCall(1, 1, -3) != 0)
+				if (LUA->PCall(1, 0, -3) != 0)
 					redis::ErrorNoHalt(LUA, "[redis OnDisconnected callback error] ");
 			}
 			else
