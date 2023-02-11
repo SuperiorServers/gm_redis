@@ -12,8 +12,8 @@ namespace redis
 {
 	namespace globals
 	{
-		const char			strVersion[] = "redis 1.1.0";
-		const uint32_t		iVersion = 10100;
+		const char			strVersion[] = "redis 1.2.0";
+		const uint32_t		iVersion = 10200;
 
 		extern int			iRefErrorNoHalt;
 		extern int			iRefDebugTraceBack;
