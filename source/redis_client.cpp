@@ -17,7 +17,7 @@ void redis::client::Initialize(GarrysMod::Lua::ILuaBase* LUA)
 
 	LUA->PushCFunction(wrap(lua_Exists));
 	LUA->SetField(-2, "Exists");
-	LUA->PushCFunction(wrap(lua_Exists));
+	LUA->PushCFunction(wrap(lua_Delete));
 	LUA->SetField(-2, "Delete");
 
 	LUA->PushCFunction(wrap(lua_Get));
