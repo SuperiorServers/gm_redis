@@ -1,5 +1,7 @@
 #pragma once
 
+#define MODULE_VERSION 1.2
+
 #include <cpp_redis/cpp_redis>
 #include <GarrysMod/Lua/Interface.h>
 #include "readerwriterqueue.hpp"
@@ -12,8 +14,6 @@ namespace redis
 {
 	namespace globals
 	{
-		const uint32_t		iVersion = 1.2;
-
 		extern int			iRefErrorNoHalt;
 		extern int			iRefDebugTraceBack;
 
