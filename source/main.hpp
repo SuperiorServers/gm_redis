@@ -255,7 +255,7 @@ DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 
 	int timeoutMs = 250;
 	if (LUA->IsType(4, GarrysMod::Lua::Type::Number))
-		maxReconnects = LUA->GetNumber(4);
+		timeoutMs = LUA->GetNumber(4);
 
 	int maxReconnects = -1;
 	if (LUA->IsType(5, GarrysMod::Lua::Type::Number))
@@ -263,7 +263,7 @@ DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 
 	int reconnectIntervalMs = 250;
 	if (LUA->IsType(6, GarrysMod::Lua::Type::Number))
-		maxReconnects = LUA->GetNumber(6);
+		reconnectIntervalMs = LUA->GetNumber(6);
 
 	try
 	{
@@ -271,16 +271,15 @@ DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 			{
 				using state = cpp_redis::connect_state;
 
-				if (!ptr->m_iface.is_reconnecting() &&
-					(
-						status == state::dropped || 
-						status == state::failed ||
-						status == state::lookup_failed || 
-						status == state::stopped
-					))
+				if (
+					status == state::dropped ||
+					status == state::failed ||
+					status == state::lookup_failed ||
+					status == state::stopped
+					)
 					ptr->EnqueueAction({ globals::actionType::Disconnection });
 
-			}, timeoutMs, maxReconnects, reconnectInterval);
+			}, timeoutMs, maxReconnects, reconnectIntervalMs);
 	}
 	catch (const cpp_redis::redis_error& e)
 	{
