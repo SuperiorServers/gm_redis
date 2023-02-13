@@ -32,11 +32,8 @@ static void redis::lua::Initialize(GarrysMod::Lua::ILuaBase* LUA)
 
 	LUA->CreateTable();
 
-	LUA->PushString(redis::globals::strVersion);
-	LUA->SetField(-2, "Version");
-
 	LUA->PushNumber(redis::globals::iVersion);
-	LUA->SetField(-2, "VersionNum");
+	LUA->SetField(-2, "Version");
 
 	LUA->PushCFunction(wrap(redis::lua::Create<redis::client>));
 	LUA->SetField(-2, "CreateClient");
