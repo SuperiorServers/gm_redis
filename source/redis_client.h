@@ -41,6 +41,7 @@ namespace redis
 		static int lua_Get(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Set(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_SetEx(GarrysMod::Lua::ILuaBase* LUA);
+		static int lua_TTL(GarrysMod::Lua::ILuaBase* LUA);
 	private:
 	};
 };

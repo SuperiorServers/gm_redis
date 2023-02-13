@@ -26,6 +26,8 @@ void redis::client::Initialize(GarrysMod::Lua::ILuaBase* LUA)
 	LUA->SetField(-2, "Set");
 	LUA->PushCFunction(wrap(lua_SetEx));
 	LUA->SetField(-2, "SetEx");
+	LUA->PushCFunction(wrap(lua_TTL));
+	LUA->SetField(-2, "TTL");
 
 	LUA->Pop();
 }
@@ -416,6 +418,33 @@ int redis::client::lua_SetEx(GarrysMod::Lua::ILuaBase* LUA)
 			ptr->m_iface.setex(key, secondsTtl, value);
 		else
 			ptr->m_iface.setex(key, secondsTtl, value, [ptr, callbackRef](cpp_redis::reply& reply)
+				{
+					ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
+				});
+	}
+	catch (const cpp_redis::redis_error& e)
+	{
+		return Exception(LUA, callbackRef, e);
+	}
+
+	LUA->PushBool(true);
+	return 1;
+}
+
+// https://redis.io/commands/ttl/
+int redis::client::lua_TTL(GarrysMod::Lua::ILuaBase* LUA)
+{
+	client* ptr = GetClient(LUA, 1, true);
+
+	const char* key = LUA->CheckString(2);
+	int callbackRef = GetCallbackOptional(LUA, 2);
+
+	try
+	{
+		if (callbackRef == GarrysMod::Lua::Type::NONE)
+			ptr->m_iface.ttl(key);
+		else
+			ptr->m_iface.ttl(key, [ptr, callbackRef](cpp_redis::reply& reply)
 				{
 					ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
 				});
