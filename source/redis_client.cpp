@@ -437,17 +437,14 @@ int redis::client::lua_TTL(GarrysMod::Lua::ILuaBase* LUA)
 	client* ptr = GetClient(LUA, 1, true);
 
 	const char* key = LUA->CheckString(2);
-	int callbackRef = GetCallbackOptional(LUA, 2);
+	int callbackRef = GetCallback(LUA, 2);
 
 	try
 	{
-		if (callbackRef == GarrysMod::Lua::Type::NONE)
-			ptr->m_iface.ttl(key);
-		else
-			ptr->m_iface.ttl(key, [ptr, callbackRef](cpp_redis::reply& reply)
-				{
-					ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
-				});
+		ptr->m_iface.ttl(key, [ptr, callbackRef](cpp_redis::reply& reply)
+			{
+				ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
+			});	
 	}
 	catch (const cpp_redis::redis_error& e)
 	{
