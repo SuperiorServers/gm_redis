@@ -48,6 +48,7 @@ namespace redis
 
 		static int lua_IsValid(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_IsConnected(GarrysMod::Lua::ILuaBase* LUA);
+		static int lua_IsReconnecting(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Connect(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Disconnect(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Poll(GarrysMod::Lua::ILuaBase* LUA);
@@ -113,6 +114,9 @@ DerivedInterfaceMethod(void)::InitMetatable(GarrysMod::Lua::ILuaBase* LUA, const
 
 	LUA->PushCFunction(wrap(lua_IsConnected));
 	LUA->SetField(-2, "IsConnected");
+
+	LUA->PushCFunction(wrap(lua_IsReconnecting));
+	LUA->SetField(-2, "IsReconnecting");
 
 	LUA->PushCFunction(wrap(lua_Connect));
 	LUA->SetField(-2, "Connect");
@@ -234,6 +238,14 @@ DerivedInterfaceMethod(int)::lua_IsConnected(GarrysMod::Lua::ILuaBase* LUA)
 	return 1;
 }
 
+DerivedInterfaceMethod(int)::lua_IsReconnecting(GarrysMod::Lua::ILuaBase* LUA)
+{
+	BaseInterface* ptr = Get(LUA, 1, true);
+
+	LUA->PushBool(ptr->m_iface.is_reconnecting());
+	return 1;
+}
+
 DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 {
 	BaseInterface* ptr = Get(LUA, 1, true);
@@ -241,15 +253,34 @@ DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 	const char* host = LUA->CheckString(2);
 	size_t port = static_cast<size_t>(LUA->CheckNumber(3));
 
+	int timeoutMs = 250;
+	if (LUA->IsType(4, GarrysMod::Lua::Type::Number))
+		maxReconnects = LUA->GetNumber(4);
+
+	int maxReconnects = -1;
+	if (LUA->IsType(5, GarrysMod::Lua::Type::Number))
+		maxReconnects = LUA->GetNumber(5);
+
+	int reconnectIntervalMs = 250;
+	if (LUA->IsType(6, GarrysMod::Lua::Type::Number))
+		maxReconnects = LUA->GetNumber(6);
+
 	try
 	{
 		ptr->m_iface.connect(host, port, [ptr](auto, auto, auto status)
 			{
 				using state = cpp_redis::connect_state;
-				if (status == state::dropped || status == state::failed ||
-					status == state::lookup_failed || status == state::stopped)
+
+				if (!ptr->m_iface.is_reconnecting() &&
+					(
+						status == state::dropped || 
+						status == state::failed ||
+						status == state::lookup_failed || 
+						status == state::stopped
+					))
 					ptr->EnqueueAction({ globals::actionType::Disconnection });
-			});
+
+			}, timeoutMs, maxReconnects, reconnectInterval);
 	}
 	catch (const cpp_redis::redis_error& e)
 	{
