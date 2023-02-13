@@ -327,14 +327,17 @@ int redis::client::lua_Delete(GarrysMod::Lua::ILuaBase* LUA)
 	client* ptr = GetClient(LUA, 1, true);
 
 	std::vector<std::string> keys = GetKeys(LUA, 2);
-	int callbackRef = GetCallback(LUA, 3);
+	int callbackRef = GetCallbackOptional(LUA, 3);
 
 	try
 	{
-		ptr->m_iface.del(keys, [ptr, callbackRef](cpp_redis::reply& reply)
-			{
-				ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
-			});
+		if (callbackRef == GarrysMod::Lua::Type::NONE)
+			ptr->m_iface.del(keys);
+		else
+			ptr->m_iface.del(keys, [ptr, callbackRef](cpp_redis::reply& reply)
+				{
+					ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
+				});
 	}
 	catch (const cpp_redis::redis_error& e)
 	{
