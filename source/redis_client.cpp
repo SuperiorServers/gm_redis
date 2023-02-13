@@ -86,7 +86,7 @@ const char* toString(GarrysMod::Lua::ILuaBase* LUA, int32_t idx, size_t* len = n
 			break;
 
 		default:
-			LUA->PushFormattedString("%s: %p", LUA->GetTypeName(LUA->GetType(idx)), lua_topointer(LUA->GetState(), idx));
+			LUA->PushFormattedString("%s: %p", LUA->GetTypeName(LUA->GetType(idx)), LUA->GetPointer(idx));
 			break;
 		}
 

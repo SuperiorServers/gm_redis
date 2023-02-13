@@ -83,7 +83,7 @@ DerivedInterfaceMethod()::BaseInterface(GarrysMod::Lua::ILuaBase* LUA)
 	LUA->SetMetaTable(-2);
 
 	LUA->CreateTable();
-	lua_setfenv(LUA->GetState(), -2);
+	LUA->SetFEnv(-2);
 }
 
 DerivedInterfaceMethod(void)::InitMetatable(GarrysMod::Lua::ILuaBase* LUA, const char* mtName)
@@ -179,7 +179,7 @@ DerivedInterfaceMethod(int)::lua__index(GarrysMod::Lua::ILuaBase* LUA)
 
 	LUA->Pop(2);
 
-	lua_getfenv(LUA->GetState(), 1);
+	LUA->GetFEnv(1);
 	LUA->Push(2);
 	LUA->RawGet(-2);
 	return 1;
@@ -204,7 +204,7 @@ DerivedInterfaceMethod(int)::lua__newindex(GarrysMod::Lua::ILuaBase* LUA)
 		}
 	}
 
-	lua_getfenv(LUA->GetState(), 1);
+	LUA->GetFEnv(1);
 	LUA->Push(2);
 	LUA->Push(3);
 	LUA->RawSet(-3);
