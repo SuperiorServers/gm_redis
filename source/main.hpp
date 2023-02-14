@@ -19,6 +19,7 @@ namespace redis
 
 		enum class actionType
 		{
+			Connection,
 			Disconnection,
 			Reply,
 			Publish,
@@ -59,6 +60,7 @@ namespace redis
 	protected:
 		inline static int	m_metaTableID = 0;
 		inline static char* m_metaTableName = 0;
+		int					m_refOnConnected = 0;
 		int					m_refOnDisconnected = 0;
 		int					m_refOnMessage = 0;
 
@@ -193,7 +195,15 @@ DerivedInterfaceMethod(int)::lua__newindex(GarrysMod::Lua::ILuaBase* LUA)
 	if (LUA->GetType(2) == GarrysMod::Lua::Type::String)
 	{
 		const char* key = LUA->GetString(2);
-		int* ref = strcmp(key, "OnDisconnected") == 0 ? &ptr->m_refOnDisconnected : strcmp(key, "OnMessage") == 0 ? &ptr->m_refOnMessage : nullptr;
+		int* ref = nullptr;
+
+		if (strcmp(key, "OnConnected") == 0)
+			ref = &ptr->m_refOnConnected;
+		else if (strcmp(key, "OnDisconnected") == 0)
+			ref = &ptr->m_refOnDisconnected;
+		else if (strcmp(key, "OnMessage") == 0)
+			ref = &ptr->m_refOnMessage;
+
 		if (ref)
 		{
 			if (*ref > 0)
@@ -278,6 +288,8 @@ DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 					status == state::stopped
 					)
 					ptr->EnqueueAction({ globals::actionType::Disconnection });
+				else if (status == state::ok)
+					ptr->EnqueueAction({ globals::actionType::Connection });
 
 			}, timeoutMs, maxReconnects, reconnectIntervalMs);
 	}
@@ -337,6 +349,17 @@ DerivedInterfaceMethod(int)::lua_Poll(GarrysMod::Lua::ILuaBase* LUA)
 				LUA->Push(1);
 				if (LUA->PCall(1, 0, -3) != 0)
 					redis::ErrorNoHalt(LUA, "[redis OnDisconnected callback error] ");
+			}
+			else
+				LUA->Pop();
+			break;
+		case globals::actionType::Connection:
+			LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
+			if (redis::PushCallback(LUA, ptr->m_refOnDisconnected, 1, "OnConnected"))
+			{
+				LUA->Push(1);
+				if (LUA->PCall(1, 0, -3) != 0)
+					redis::ErrorNoHalt(LUA, "[redis OnConnected callback error] ");
 			}
 			else
 				LUA->Pop();
