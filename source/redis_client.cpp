@@ -8,6 +8,8 @@ void redis::client::Initialize(GarrysMod::Lua::ILuaBase* LUA)
 	LUA->PushCFunction(wrap(lua_Send));
 	LUA->SetField(-2, "Send");
 
+	LUA->PushCFunction(wrap(lua_Ping));
+	LUA->SetField(-2, "Ping");
 	LUA->PushCFunction(wrap(lua_Auth));
 	LUA->SetField(-2, "Auth");
 	LUA->PushCFunction(wrap(lua_Select));
@@ -207,6 +209,32 @@ int redis::client::lua_Send(GarrysMod::Lua::ILuaBase* LUA)
 			{
 					ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
 			});
+	}
+	catch (const cpp_redis::redis_error& e)
+	{
+		return Exception(LUA, callbackRef, e);
+	}
+
+	LUA->PushBool(true);
+	return 1;
+}
+
+// https://redis.io/commands/ping/
+int redis::client::lua_Ping(GarrysMod::Lua::ILuaBase* LUA)
+{
+	client* ptr = GetClient(LUA, 1, true);
+
+	int callbackRef = GetCallbackOptional(LUA, 2);
+
+	try
+	{
+		if (callbackRef == GarrysMod::Lua::Type::NONE)
+			ptr->m_iface.ping();
+		else
+			ptr->m_iface.ping([ptr, callbackRef](cpp_redis::reply& reply)
+				{
+					ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
+				});
 	}
 	catch (const cpp_redis::redis_error& e)
 	{

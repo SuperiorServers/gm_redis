@@ -18,6 +18,8 @@ namespace redis
 		static void Initialize(GarrysMod::Lua::ILuaBase* LUA);
 		void HandleAction(GarrysMod::Lua::ILuaBase* LUA, subAction action);
 
+		static int lua_Ping(GarrysMod::Lua::ILuaBase* LUA);
+
 		static int lua_Subscribe(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Unsubscribe(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_PSubscribe(GarrysMod::Lua::ILuaBase* LUA);
