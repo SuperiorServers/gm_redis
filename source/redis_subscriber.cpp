@@ -5,6 +5,9 @@ void redis::subscriber::Initialize(GarrysMod::Lua::ILuaBase* LUA)
 {
 	BaseInterface::InitMetatable(LUA, "redis_subscriber");
 
+	LUA->PushCFunction(wrap(lua_Ping));
+	LUA->SetField(-2, "Ping");
+
 	LUA->PushCFunction(wrap(lua_Subscribe));
 	LUA->SetField(-2, "Subscribe");
 
@@ -39,7 +42,27 @@ void redis::subscriber::HandleAction(GarrysMod::Lua::ILuaBase* LUA, subAction ac
 	}
 }
 
+// https://redis.io/commands/ping/
+int redis::subscriber::lua_Ping(GarrysMod::Lua::ILuaBase* LUA)
+{
+	subscriber* ptr = GetSubscriber(LUA, 1, true);
 
+	try
+	{
+		ptr->m_iface.ping();
+	}
+	catch (const cpp_redis::redis_error& e)
+	{
+		LUA->PushNil();
+		LUA->PushString(e.what());
+		return 2;
+	}
+
+	LUA->PushBool(true);
+	return 1;
+}
+
+// https://redis.io/commands/subscribe/
 int redis::subscriber::lua_Subscribe(GarrysMod::Lua::ILuaBase* LUA)
 {
 	subscriber* ptr = GetSubscriber(LUA, 1, true);
@@ -63,6 +86,7 @@ int redis::subscriber::lua_Subscribe(GarrysMod::Lua::ILuaBase* LUA)
 	return 1;
 }
 
+// https://redis.io/commands/psubscribe/
 int redis::subscriber::lua_PSubscribe(GarrysMod::Lua::ILuaBase* LUA)
 {
 	subscriber* ptr = GetSubscriber(LUA, 1, true);
@@ -86,6 +110,7 @@ int redis::subscriber::lua_PSubscribe(GarrysMod::Lua::ILuaBase* LUA)
 	return 1;
 }
 
+// https://redis.io/commands/unsubscribe/
 int redis::subscriber::lua_Unsubscribe(GarrysMod::Lua::ILuaBase* LUA)
 {
 	subscriber* ptr = GetSubscriber(LUA, 1, true);
@@ -106,6 +131,7 @@ int redis::subscriber::lua_Unsubscribe(GarrysMod::Lua::ILuaBase* LUA)
 	return 1;
 }
 
+// https://redis.io/commands/punsubscribe/
 int redis::subscriber::lua_PUnsubscribe(GarrysMod::Lua::ILuaBase* LUA)
 {
 	subscriber* ptr = GetSubscriber(LUA, 1, true);

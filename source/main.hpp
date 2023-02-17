@@ -1,5 +1,7 @@
 #pragma once
 
+#define MODULE_VERSION 1.2
+
 #include <cpp_redis/cpp_redis>
 #include <GarrysMod/Lua/Interface.h>
 #include "readerwriterqueue.hpp"
@@ -12,13 +14,12 @@ namespace redis
 {
 	namespace globals
 	{
-		const uint32_t		iVersion = 1.2;
-
 		extern int			iRefErrorNoHalt;
 		extern int			iRefDebugTraceBack;
 
 		enum class actionType
 		{
+			Connection,
 			Disconnection,
 			Reply,
 			Publish,
@@ -48,6 +49,7 @@ namespace redis
 
 		static int lua_IsValid(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_IsConnected(GarrysMod::Lua::ILuaBase* LUA);
+		static int lua_IsReconnecting(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Connect(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Disconnect(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Poll(GarrysMod::Lua::ILuaBase* LUA);
@@ -58,6 +60,7 @@ namespace redis
 	protected:
 		inline static int	m_metaTableID = 0;
 		inline static char* m_metaTableName = 0;
+		int					m_refOnConnected = 0;
 		int					m_refOnDisconnected = 0;
 		int					m_refOnMessage = 0;
 
@@ -82,7 +85,7 @@ DerivedInterfaceMethod()::BaseInterface(GarrysMod::Lua::ILuaBase* LUA)
 	LUA->SetMetaTable(-2);
 
 	LUA->CreateTable();
-	lua_setfenv(LUA->GetState(), -2);
+	LUA->SetFEnv(-2);
 }
 
 DerivedInterfaceMethod(void)::InitMetatable(GarrysMod::Lua::ILuaBase* LUA, const char* mtName)
@@ -113,6 +116,9 @@ DerivedInterfaceMethod(void)::InitMetatable(GarrysMod::Lua::ILuaBase* LUA, const
 
 	LUA->PushCFunction(wrap(lua_IsConnected));
 	LUA->SetField(-2, "IsConnected");
+
+	LUA->PushCFunction(wrap(lua_IsReconnecting));
+	LUA->SetField(-2, "IsReconnecting");
 
 	LUA->PushCFunction(wrap(lua_Connect));
 	LUA->SetField(-2, "Connect");
@@ -175,7 +181,7 @@ DerivedInterfaceMethod(int)::lua__index(GarrysMod::Lua::ILuaBase* LUA)
 
 	LUA->Pop(2);
 
-	lua_getfenv(LUA->GetState(), 1);
+	LUA->GetFEnv(1);
 	LUA->Push(2);
 	LUA->RawGet(-2);
 	return 1;
@@ -189,7 +195,15 @@ DerivedInterfaceMethod(int)::lua__newindex(GarrysMod::Lua::ILuaBase* LUA)
 	if (LUA->GetType(2) == GarrysMod::Lua::Type::String)
 	{
 		const char* key = LUA->GetString(2);
-		int* ref = strcmp(key, "OnDisconnected") == 0 ? &ptr->m_refOnDisconnected : strcmp(key, "OnMessage") == 0 ? &ptr->m_refOnMessage : nullptr;
+		int* ref = nullptr;
+
+		if (strcmp(key, "OnConnected") == 0)
+			ref = &ptr->m_refOnConnected;
+		else if (strcmp(key, "OnDisconnected") == 0)
+			ref = &ptr->m_refOnDisconnected;
+		else if (strcmp(key, "OnMessage") == 0)
+			ref = &ptr->m_refOnMessage;
+
 		if (ref)
 		{
 			if (*ref > 0)
@@ -200,7 +214,7 @@ DerivedInterfaceMethod(int)::lua__newindex(GarrysMod::Lua::ILuaBase* LUA)
 		}
 	}
 
-	lua_getfenv(LUA->GetState(), 1);
+	LUA->GetFEnv(1);
 	LUA->Push(2);
 	LUA->Push(3);
 	LUA->RawSet(-3);
@@ -234,6 +248,14 @@ DerivedInterfaceMethod(int)::lua_IsConnected(GarrysMod::Lua::ILuaBase* LUA)
 	return 1;
 }
 
+DerivedInterfaceMethod(int)::lua_IsReconnecting(GarrysMod::Lua::ILuaBase* LUA)
+{
+	BaseInterface* ptr = Get(LUA, 1, true);
+
+	LUA->PushBool(ptr->m_iface.is_reconnecting());
+	return 1;
+}
+
 DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 {
 	BaseInterface* ptr = Get(LUA, 1, true);
@@ -241,15 +263,35 @@ DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 	const char* host = LUA->CheckString(2);
 	size_t port = static_cast<size_t>(LUA->CheckNumber(3));
 
+	int timeoutMs = 250;
+	if (LUA->IsType(4, GarrysMod::Lua::Type::Number))
+		timeoutMs = LUA->GetNumber(4);
+
+	int maxReconnects = -1;
+	if (LUA->IsType(5, GarrysMod::Lua::Type::Number))
+		maxReconnects = LUA->GetNumber(5);
+
+	int reconnectIntervalMs = 250;
+	if (LUA->IsType(6, GarrysMod::Lua::Type::Number))
+		reconnectIntervalMs = LUA->GetNumber(6);
+
 	try
 	{
 		ptr->m_iface.connect(host, port, [ptr](auto, auto, auto status)
 			{
 				using state = cpp_redis::connect_state;
-				if (status == state::dropped || status == state::failed ||
-					status == state::lookup_failed || status == state::stopped)
+
+				if (
+					status == state::dropped ||
+					status == state::failed ||
+					status == state::lookup_failed ||
+					status == state::stopped
+					)
 					ptr->EnqueueAction({ globals::actionType::Disconnection });
-			});
+				else if (status == state::ok)
+					ptr->EnqueueAction({ globals::actionType::Connection });
+
+			}, timeoutMs, maxReconnects, reconnectIntervalMs);
 	}
 	catch (const cpp_redis::redis_error& e)
 	{
@@ -307,6 +349,17 @@ DerivedInterfaceMethod(int)::lua_Poll(GarrysMod::Lua::ILuaBase* LUA)
 				LUA->Push(1);
 				if (LUA->PCall(1, 0, -3) != 0)
 					redis::ErrorNoHalt(LUA, "[redis OnDisconnected callback error] ");
+			}
+			else
+				LUA->Pop();
+			break;
+		case globals::actionType::Connection:
+			LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
+			if (redis::PushCallback(LUA, ptr->m_refOnDisconnected, 1, "OnConnected"))
+			{
+				LUA->Push(1);
+				if (LUA->PCall(1, 0, -3) != 0)
+					redis::ErrorNoHalt(LUA, "[redis OnConnected callback error] ");
 			}
 			else
 				LUA->Pop();

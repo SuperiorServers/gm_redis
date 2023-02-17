@@ -8,6 +8,8 @@ void redis::client::Initialize(GarrysMod::Lua::ILuaBase* LUA)
 	LUA->PushCFunction(wrap(lua_Send));
 	LUA->SetField(-2, "Send");
 
+	LUA->PushCFunction(wrap(lua_Ping));
+	LUA->SetField(-2, "Ping");
 	LUA->PushCFunction(wrap(lua_Auth));
 	LUA->SetField(-2, "Auth");
 	LUA->PushCFunction(wrap(lua_Select));
@@ -26,6 +28,8 @@ void redis::client::Initialize(GarrysMod::Lua::ILuaBase* LUA)
 	LUA->SetField(-2, "Set");
 	LUA->PushCFunction(wrap(lua_SetEx));
 	LUA->SetField(-2, "SetEx");
+	LUA->PushCFunction(wrap(lua_TTL));
+	LUA->SetField(-2, "TTL");
 
 	LUA->Pop();
 }
@@ -86,7 +90,7 @@ const char* toString(GarrysMod::Lua::ILuaBase* LUA, int32_t idx, size_t* len = n
 			break;
 
 		default:
-			LUA->PushFormattedString("%s: %p", LUA->GetTypeName(LUA->GetType(idx)), lua_topointer(LUA->GetState(), idx));
+			LUA->PushFormattedString("%s: %p", LUA->GetTypeName(LUA->GetType(idx)), LUA->GetPointer(idx));
 			break;
 		}
 
@@ -215,6 +219,32 @@ int redis::client::lua_Send(GarrysMod::Lua::ILuaBase* LUA)
 	return 1;
 }
 
+// https://redis.io/commands/ping/
+int redis::client::lua_Ping(GarrysMod::Lua::ILuaBase* LUA)
+{
+	client* ptr = GetClient(LUA, 1, true);
+
+	int callbackRef = GetCallbackOptional(LUA, 2);
+
+	try
+	{
+		if (callbackRef == GarrysMod::Lua::Type::NONE)
+			ptr->m_iface.ping();
+		else
+			ptr->m_iface.ping([ptr, callbackRef](cpp_redis::reply& reply)
+				{
+					ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
+				});
+	}
+	catch (const cpp_redis::redis_error& e)
+	{
+		return Exception(LUA, callbackRef, e);
+	}
+
+	LUA->PushBool(true);
+	return 1;
+}
+
 // https://redis.io/commands/auth/
 int redis::client::lua_Auth(GarrysMod::Lua::ILuaBase* LUA)
 {
@@ -327,14 +357,17 @@ int redis::client::lua_Delete(GarrysMod::Lua::ILuaBase* LUA)
 	client* ptr = GetClient(LUA, 1, true);
 
 	std::vector<std::string> keys = GetKeys(LUA, 2);
-	int callbackRef = GetCallback(LUA, 3);
+	int callbackRef = GetCallbackOptional(LUA, 3);
 
 	try
 	{
-		ptr->m_iface.del(keys, [ptr, callbackRef](cpp_redis::reply& reply)
-			{
-				ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
-			});
+		if (callbackRef == GarrysMod::Lua::Type::NONE)
+			ptr->m_iface.del(keys);
+		else
+			ptr->m_iface.del(keys, [ptr, callbackRef](cpp_redis::reply& reply)
+				{
+					ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
+				});
 	}
 	catch (const cpp_redis::redis_error& e)
 	{
@@ -416,6 +449,30 @@ int redis::client::lua_SetEx(GarrysMod::Lua::ILuaBase* LUA)
 				{
 					ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
 				});
+	}
+	catch (const cpp_redis::redis_error& e)
+	{
+		return Exception(LUA, callbackRef, e);
+	}
+
+	LUA->PushBool(true);
+	return 1;
+}
+
+// https://redis.io/commands/ttl/
+int redis::client::lua_TTL(GarrysMod::Lua::ILuaBase* LUA)
+{
+	client* ptr = GetClient(LUA, 1, true);
+
+	const char* key = LUA->CheckString(2);
+	int callbackRef = GetCallback(LUA, 2);
+
+	try
+	{
+		ptr->m_iface.ttl(key, [ptr, callbackRef](cpp_redis::reply& reply)
+			{
+				ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
+			});	
 	}
 	catch (const cpp_redis::redis_error& e)
 	{

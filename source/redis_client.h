@@ -31,6 +31,7 @@ namespace redis
 
 		static int lua_Send(GarrysMod::Lua::ILuaBase* LUA);
 
+		static int lua_Ping(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Auth(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Select(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Publish(GarrysMod::Lua::ILuaBase* LUA);
@@ -41,6 +42,7 @@ namespace redis
 		static int lua_Get(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Set(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_SetEx(GarrysMod::Lua::ILuaBase* LUA);
+		static int lua_TTL(GarrysMod::Lua::ILuaBase* LUA);
 	private:
 	};
 };
