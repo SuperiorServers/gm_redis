@@ -465,7 +465,7 @@ int redis::client::lua_TTL(GarrysMod::Lua::ILuaBase* LUA)
 	client* ptr = GetClient(LUA, 1, true);
 
 	const char* key = LUA->CheckString(2);
-	int callbackRef = GetCallback(LUA, 2);
+	int callbackRef = GetCallback(LUA, 3);
 
 	try
 	{
