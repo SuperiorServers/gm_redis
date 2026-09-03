@@ -54,5 +54,69 @@ namespace redis
 		LUA->Call(3, 0);
 		LUA->Pop();
 	};
+
+	void PushReply(GarrysMod::Lua::ILuaBase* LUA, const cpp_redis::reply& reply)
+	{
+		switch (reply.get_type())
+		{
+		case cpp_redis::reply::type::error:
+		case cpp_redis::reply::type::bulk_string:
+		case cpp_redis::reply::type::simple_string:
+			LUA->PushString(reply.as_string().c_str());
+			break;
+
+		case cpp_redis::reply::type::integer:
+			LUA->PushNumber(static_cast<double>(reply.as_integer()));
+			break;
+
+		case cpp_redis::reply::type::array:
+		{
+			LUA->CreateTable();
+
+			int i = 1;
+			for (const auto& row : reply.as_array())
+			{
+				LUA->PushNumber(i++);
+				PushReply(LUA, row);
+				LUA->SetTable(-3);
+			}
+			break;
+		}
+
+		case cpp_redis::reply::type::null:
+		default:
+			LUA->PushNil();
+			break;
+		}
+	}
+
+	int Exception(GarrysMod::Lua::ILuaBase* LUA, int callbackRef, const cpp_redis::redis_error& e)
+	{
+		LUA->ReferenceFree(callbackRef);
+		LUA->PushNil();
+		LUA->PushString(e.what());
+		return 2;
+	}
+
+	int GetCallback(GarrysMod::Lua::ILuaBase* LUA, int stackPos)
+	{
+		LUA->CheckType(stackPos, GarrysMod::Lua::Type::FUNCTION);
+		LUA->Push(stackPos);
+
+		return LUA->ReferenceCreate();
+	}
+
+	int GetCallbackOptional(GarrysMod::Lua::ILuaBase* LUA, int stackPos)
+	{
+		if (LUA->Top() >= stackPos && !LUA->IsType(stackPos, GarrysMod::Lua::Type::NIL))
+		{
+			LUA->CheckType(stackPos, GarrysMod::Lua::Type::FUNCTION);
+			LUA->Push(stackPos);
+
+			return LUA->ReferenceCreate();
+		}
+
+		return GarrysMod::Lua::Type::NONE;
+	}
 };
 

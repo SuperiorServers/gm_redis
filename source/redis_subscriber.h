@@ -1,8 +1,10 @@
 #pragma once
 
 struct subActionData {
-	std::string channel;
-	std::string message;
+	std::string			channel;
+	std::string			message;
+	cpp_redis::reply	reply;
+	int32_t				reference = 0;
 };
 typedef redis::action<subActionData> subAction;
 
@@ -19,6 +21,7 @@ namespace redis
 		void HandleAction(GarrysMod::Lua::ILuaBase* LUA, subAction action);
 
 		static int lua_Ping(GarrysMod::Lua::ILuaBase* LUA);
+		static int lua_Auth(GarrysMod::Lua::ILuaBase* LUA);
 
 		static int lua_Subscribe(GarrysMod::Lua::ILuaBase* LUA);
 		static int lua_Unsubscribe(GarrysMod::Lua::ILuaBase* LUA);

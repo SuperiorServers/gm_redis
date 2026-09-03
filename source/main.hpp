@@ -30,6 +30,12 @@ namespace redis
 	void ErrorNoHalt(GarrysMod::Lua::ILuaBase* LUA, const char* msg);
 	bool PushCallback(GarrysMod::Lua::ILuaBase* LUA, int ref, int idx, const char* field);
 
+	void PushReply(GarrysMod::Lua::ILuaBase* LUA, const cpp_redis::reply& reply);
+
+	int Exception(GarrysMod::Lua::ILuaBase* LUA, int callbackRef, const cpp_redis::redis_error& e);
+	int GetCallback(GarrysMod::Lua::ILuaBase* LUA, int stackPos);
+	int GetCallbackOptional(GarrysMod::Lua::ILuaBase* LUA, int stackPos);
+
 	template <typename actionData>
 	struct action {
 		globals::actionType	type;

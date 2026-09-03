@@ -19,12 +19,6 @@ namespace redis
 		static void Initialize(GarrysMod::Lua::ILuaBase* LUA);
 		void HandleAction(GarrysMod::Lua::ILuaBase* LUA, clientAction action);
 
-		static int Exception(GarrysMod::Lua::ILuaBase* LUA, int reference, const cpp_redis::redis_error& e);
-
-		static int GetCallback(GarrysMod::Lua::ILuaBase* LUA, int stackPos);
-
-		static int GetCallbackOptional(GarrysMod::Lua::ILuaBase* LUA, int stackPos);
-
 		static std::vector<std::string> GetKeys(GarrysMod::Lua::ILuaBase* LUA, int stackPos);
 
 		static std::vector<std::string> CheckKeys(GarrysMod::Lua::ILuaBase* LUA, int stackPos);

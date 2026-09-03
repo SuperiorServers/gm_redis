@@ -8,6 +8,9 @@ void redis::subscriber::Initialize(GarrysMod::Lua::ILuaBase* LUA)
 	LUA->PushCFunction(wrap(lua_Ping));
 	LUA->SetField(-2, "Ping");
 
+	LUA->PushCFunction(wrap(lua_Auth));
+	LUA->SetField(-2, "Auth");
+
 	LUA->PushCFunction(wrap(lua_Subscribe));
 	LUA->SetField(-2, "Subscribe");
 
@@ -25,8 +28,9 @@ void redis::subscriber::Initialize(GarrysMod::Lua::ILuaBase* LUA)
 
 void redis::subscriber::HandleAction(GarrysMod::Lua::ILuaBase* LUA, subAction action)
 {
-	if (action.type == redis::globals::actionType::Message)
+	switch (action.type)
 	{
+	case redis::globals::actionType::Message:
 		LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
 		if (redis::PushCallback(LUA, m_refOnMessage, 1, "OnMessage"))
 		{
@@ -39,6 +43,25 @@ void redis::subscriber::HandleAction(GarrysMod::Lua::ILuaBase* LUA, subAction ac
 		}
 		else
 			LUA->Pop();
+		break;
+
+	case redis::globals::actionType::Reply:
+		if (action.data.reference > 0)
+		{
+			LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
+			LUA->ReferencePush(action.data.reference);
+			LUA->Push(1);
+			redis::PushReply(LUA, action.data.reply);
+
+			if (LUA->PCall(2, 0, -4) != 0)
+				redis::ErrorNoHalt(LUA, "[redis subscriber reply callback error] ");
+
+			LUA->ReferenceFree(action.data.reference);
+		}
+		break;
+
+	default:
+		break;
 	}
 }
 
@@ -46,16 +69,51 @@ void redis::subscriber::HandleAction(GarrysMod::Lua::ILuaBase* LUA, subAction ac
 int redis::subscriber::lua_Ping(GarrysMod::Lua::ILuaBase* LUA)
 {
 	subscriber* ptr = GetSubscriber(LUA, 1, true);
+	int callbackRef = GetCallbackOptional(LUA, 2);
 
 	try
 	{
-		ptr->m_iface.ping();
+		if (callbackRef == GarrysMod::Lua::Type::NONE)
+			ptr->m_iface.ping();
+		else
+			ptr->m_iface.ping([ptr, callbackRef](cpp_redis::reply& reply)
+				{
+					cpp_redis::reply normalised = reply.is_array()
+						? cpp_redis::reply("PONG", cpp_redis::reply::string_type::simple_string)
+						: reply;
+
+					ptr->EnqueueAction({ redis::globals::actionType::Reply, { {}, {}, normalised, callbackRef } });
+				});
 	}
 	catch (const cpp_redis::redis_error& e)
 	{
-		LUA->PushNil();
-		LUA->PushString(e.what());
-		return 2;
+		return Exception(LUA, callbackRef, e);
+	}
+
+	LUA->PushBool(true);
+	return 1;
+}
+
+// https://redis.io/commands/auth/
+int redis::subscriber::lua_Auth(GarrysMod::Lua::ILuaBase* LUA)
+{
+	subscriber* ptr = GetSubscriber(LUA, 1, true);
+	const char* password = LUA->CheckString(2);
+	int callbackRef = GetCallbackOptional(LUA, 3);
+
+	try
+	{
+		if (callbackRef == GarrysMod::Lua::Type::NONE)
+			ptr->m_iface.auth(password);
+		else
+			ptr->m_iface.auth(password, [ptr, callbackRef](cpp_redis::reply& reply)
+				{
+					ptr->EnqueueAction({ redis::globals::actionType::Reply, { {}, {}, reply, callbackRef } });
+				});
+	}
+	catch (const cpp_redis::redis_error& e)
+	{
+		return Exception(LUA, callbackRef, e);
 	}
 
 	LUA->PushBool(true);

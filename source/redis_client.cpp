@@ -34,40 +34,6 @@ void redis::client::Initialize(GarrysMod::Lua::ILuaBase* LUA)
 	LUA->Pop();
 }
 
-void buildTable(GarrysMod::Lua::ILuaBase* LUA, const std::vector<cpp_redis::reply>& replies)
-{
-	LUA->CreateTable();
-
-	int i = 1;
-	for (auto reply : replies)
-	{
-		LUA->PushNumber(i++);
-
-		switch (reply.get_type())
-		{
-		case cpp_redis::reply::type::error:
-		case cpp_redis::reply::type::bulk_string:
-		case cpp_redis::reply::type::simple_string:
-			LUA->PushString(reply.as_string().c_str());
-			break;
-
-		case cpp_redis::reply::type::integer:
-			LUA->PushNumber(static_cast<double>(reply.as_integer()));
-			break;
-
-		case cpp_redis::reply::type::array:
-			buildTable(LUA, reply.as_array());
-			break;
-
-		case cpp_redis::reply::type::null:
-			LUA->PushNil();
-			break;
-		}
-
-		LUA->SetTable(-3);
-	}
-}
-
 const char* toString(GarrysMod::Lua::ILuaBase* LUA, int32_t idx, size_t* len = nullptr)
 {
 	if (LUA->CallMeta(idx, "__tostring") == 0)
@@ -107,26 +73,7 @@ void redis::client::HandleAction(GarrysMod::Lua::ILuaBase* LUA, clientAction act
 			LUA->ReferencePush(action.data.reference);
 			LUA->Push(1);
 
-			switch (action.data.reply.get_type())
-			{
-			case cpp_redis::reply::type::error:
-			case cpp_redis::reply::type::bulk_string:
-			case cpp_redis::reply::type::simple_string:
-				LUA->PushString(action.data.reply.as_string().c_str());
-				break;
-
-			case cpp_redis::reply::type::integer:
-				LUA->PushNumber(static_cast<double>(action.data.reply.as_integer()));
-				break;
-
-			case cpp_redis::reply::type::array:
-				buildTable(LUA, action.data.reply.as_array());
-				break;
-
-			case cpp_redis::reply::type::null:
-				LUA->PushNil();
-				break;
-			}
+			redis::PushReply(LUA, action.data.reply);
 
 			if (LUA->PCall(2, 0, -4) != 0)
 				redis::ErrorNoHalt(LUA, "[redis Send callback error] ");
@@ -134,35 +81,6 @@ void redis::client::HandleAction(GarrysMod::Lua::ILuaBase* LUA, clientAction act
 			LUA->ReferenceFree(action.data.reference);
 		}
 	}
-}
-
-int redis::client::Exception(GarrysMod::Lua::ILuaBase* LUA, int callbackRef, const cpp_redis::redis_error& e)
-{
-	LUA->ReferenceFree(callbackRef);
-	LUA->PushNil();
-	LUA->PushString(e.what());
-	return 2;
-}
-
-int redis::client::GetCallback(GarrysMod::Lua::ILuaBase* LUA, int stackPos)
-{
-	LUA->CheckType(stackPos, GarrysMod::Lua::Type::FUNCTION);
-	LUA->Push(stackPos);
-
-	return LUA->ReferenceCreate();
-}
-
-int redis::client::GetCallbackOptional(GarrysMod::Lua::ILuaBase* LUA, int stackPos)
-{
-	if (LUA->Top() >= stackPos && !LUA->IsType(stackPos, GarrysMod::Lua::Type::NIL))
-	{
-		LUA->CheckType(stackPos, GarrysMod::Lua::Type::FUNCTION);
-		LUA->Push(stackPos);
-
-		return LUA->ReferenceCreate();
-	}
-
-	return GarrysMod::Lua::Type::NONE;
 }
 
 std::vector<std::string> redis::client::GetKeys(GarrysMod::Lua::ILuaBase* LUA, int stackPos)
