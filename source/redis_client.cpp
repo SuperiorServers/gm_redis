@@ -34,7 +34,7 @@ void redis::client::Initialize(GarrysMod::Lua::ILuaBase* LUA)
 	LUA->Pop();
 }
 
-const char* toString(GarrysMod::Lua::ILuaBase* LUA, int32_t idx, size_t* len = nullptr)
+const char* toString(GarrysMod::Lua::ILuaBase* LUA, int32_t idx, unsigned int* len = nullptr)
 {
 	if (LUA->CallMeta(idx, "__tostring") == 0)
 		switch (LUA->GetType(idx))

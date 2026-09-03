@@ -1,6 +1,6 @@
 #pragma once
 
-#define MODULE_VERSION 1.21
+#define MODULE_VERSION 1.3
 
 #include <cpp_redis/cpp_redis>
 #include <GarrysMod/Lua/Interface.h>
@@ -21,6 +21,8 @@ namespace redis
 		{
 			Connection,
 			Disconnection,
+			ReconnectFailed,
+			ReconnectStopped,
 			Reply,
 			Publish,
 			Message
@@ -68,6 +70,8 @@ namespace redis
 		inline static char* m_metaTableName = 0;
 		int					m_refOnConnected = 0;
 		int					m_refOnDisconnected = 0;
+		int					m_refOnReconnectFailed = 0;
+		int					m_refOnReconnectStopped = 0;
 		int					m_refOnMessage = 0;
 
 		static BaseInterface* Get(GarrysMod::Lua::ILuaBase* LUA, int index, bool throwNullError) { return static_cast<BaseInterface*>(_get(LUA, index, throwNullError)); }
@@ -207,6 +211,10 @@ DerivedInterfaceMethod(int)::lua__newindex(GarrysMod::Lua::ILuaBase* LUA)
 			ref = &ptr->m_refOnConnected;
 		else if (strcmp(key, "OnDisconnected") == 0)
 			ref = &ptr->m_refOnDisconnected;
+		else if (strcmp(key, "OnReconnectFailed") == 0)
+			ref = &ptr->m_refOnReconnectFailed;
+		else if (strcmp(key, "OnReconnectStopped") == 0)
+			ref = &ptr->m_refOnReconnectStopped;
 		else if (strcmp(key, "OnMessage") == 0)
 			ref = &ptr->m_refOnMessage;
 
@@ -269,7 +277,7 @@ DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 	const char* host = LUA->CheckString(2);
 	size_t port = static_cast<size_t>(LUA->CheckNumber(3));
 
-	int timeoutMs = 250;
+	int timeoutMs = 500;
 	if (LUA->IsType(4, GarrysMod::Lua::Type::Number))
 		timeoutMs = LUA->GetNumber(4);
 
@@ -287,15 +295,29 @@ DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 			{
 				using state = cpp_redis::connect_state;
 
-				if (
-					status == state::dropped ||
-					status == state::failed ||
-					status == state::lookup_failed ||
-					status == state::stopped
-					)
+				/*
+				 * dropped fires once when the connection is lost, then cpp_redis retries on its own:
+				 * every attempt that fails reports failed or lookup_failed, and stopped means it has
+				 * given up. Success (initial or reconnect) reports ok.
+				 */
+				switch (status)
+				{
+				case state::dropped:
 					ptr->EnqueueAction({ globals::actionType::Disconnection });
-				else if (status == state::ok)
+					break;
+				case state::failed:
+				case state::lookup_failed:
+					ptr->EnqueueAction({ globals::actionType::ReconnectFailed });
+					break;
+				case state::stopped:
+					ptr->EnqueueAction({ globals::actionType::ReconnectStopped });
+					break;
+				case state::ok:
 					ptr->EnqueueAction({ globals::actionType::Connection });
+					break;
+				default:
+					break;
+				}
 
 			}, timeoutMs, maxReconnects, reconnectIntervalMs);
 	}
@@ -361,11 +383,33 @@ DerivedInterfaceMethod(int)::lua_Poll(GarrysMod::Lua::ILuaBase* LUA)
 			break;
 		case globals::actionType::Connection:
 			LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
-			if (redis::PushCallback(LUA, ptr->m_refOnDisconnected, 1, "OnConnected"))
+			if (redis::PushCallback(LUA, ptr->m_refOnConnected, 1, "OnConnected"))
 			{
 				LUA->Push(1);
 				if (LUA->PCall(1, 0, -3) != 0)
 					redis::ErrorNoHalt(LUA, "[redis OnConnected callback error] ");
+			}
+			else
+				LUA->Pop();
+			break;
+		case globals::actionType::ReconnectFailed:
+			LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
+			if (redis::PushCallback(LUA, ptr->m_refOnReconnectFailed, 1, "OnReconnectFailed"))
+			{
+				LUA->Push(1);
+				if (LUA->PCall(1, 0, -3) != 0)
+					redis::ErrorNoHalt(LUA, "[redis OnReconnectFailed callback error] ");
+			}
+			else
+				LUA->Pop();
+			break;
+		case globals::actionType::ReconnectStopped:
+			LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
+			if (redis::PushCallback(LUA, ptr->m_refOnReconnectStopped, 1, "OnReconnectStopped"))
+			{
+				LUA->Push(1);
+				if (LUA->PCall(1, 0, -3) != 0)
+					redis::ErrorNoHalt(LUA, "[redis OnReconnectStopped callback error] ");
 			}
 			else
 				LUA->Pop();
