@@ -390,7 +390,7 @@ int redis::client::lua_TTL(GarrysMod::Lua::ILuaBase* LUA)
 		ptr->m_iface.ttl(key, [ptr, callbackRef](cpp_redis::reply& reply)
 			{
 				ptr->EnqueueAction({ redis::globals::actionType::Reply, {reply, callbackRef} });
-			});	
+			});
 	}
 	catch (const cpp_redis::redis_error& e)
 	{
