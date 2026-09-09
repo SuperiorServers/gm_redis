@@ -1,6 +1,6 @@
 #pragma once
 
-#define MODULE_VERSION 1.3
+#define MODULE_VERSION 1.31
 
 #include <cpp_redis/cpp_redis>
 #include <GarrysMod/Lua/Interface.h>
@@ -13,6 +13,12 @@
 
 #define DerivedInterfaceMethod(ret) template <class actionStruct, class redisInterface> ret redis::BaseInterface<actionStruct, redisInterface>
 #define wrap(Fn) [](lua_State* L) -> int { GarrysMod::Lua::ILuaBase* LUA = L->luabase; LUA->SetState(L); return Fn(LUA); }
+
+#if defined(_MSC_VER)
+#define REDIS_NOINLINE __declspec(noinline)
+#else
+#define REDIS_NOINLINE __attribute__((noinline))
+#endif
 
 namespace redis
 {
@@ -42,6 +48,28 @@ namespace redis
 	int Exception(GarrysMod::Lua::ILuaBase* LUA, int callbackRef, const cpp_redis::redis_error& e);
 	int GetCallback(GarrysMod::Lua::ILuaBase* LUA, int stackPos);
 	int GetCallbackOptional(GarrysMod::Lua::ILuaBase* LUA, int stackPos);
+
+	/*
+	 * On x86 Windows, LuaJIT 2.0 unwinds a Lua error by jumping over C++ frames, which leaves the
+	 * SEH registration of any frame with a try block or destructible local dangling and kills the
+	 * process on the next exception. So bindings validate arguments in a plain frame, then run the
+	 * cpp_redis call here. Nothing inside the guarded call may raise a Lua error.
+	 */
+	template <typename F>
+	REDIS_NOINLINE int Guarded(GarrysMod::Lua::ILuaBase* LUA, int callbackRef, F&& f)
+	{
+		try
+		{
+			f();
+		}
+		catch (const cpp_redis::redis_error& e)
+		{
+			return Exception(LUA, callbackRef, e);
+		}
+
+		LUA->PushBool(true);
+		return 1;
+	}
 
 	template <typename actionData>
 	struct action {
@@ -97,6 +125,11 @@ namespace redis
 		static void InitMetatable(GarrysMod::Lua::ILuaBase* LUA, const char* mtName);
 		static void CheckType(GarrysMod::Lua::ILuaBase* LUA, int index);
 		virtual void HandleAction(GarrysMod::Lua::ILuaBase* LUA, actionStruct action) { }
+
+		/* out-of-line halves that own C++ objects, see Guarded */
+		REDIS_NOINLINE bool StartConnect(const char* host, size_t port, int timeoutMs, int maxReconnects, int reconnectIntervalMs);
+		REDIS_NOINLINE void DisconnectImpl();
+		REDIS_NOINLINE int PollImpl(GarrysMod::Lua::ILuaBase* LUA);
 
 		redisInterface m_iface;
 		moodycamel::ReaderWriterQueue<actionStruct> m_queue;
@@ -320,7 +353,7 @@ DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 {
 	BaseInterface* ptr = Get(LUA, 1, true);
 
-	std::string host = LUA->CheckString(2);
+	const char* host = LUA->CheckString(2);
 	size_t port = static_cast<size_t>(LUA->CheckNumber(3));
 
 	int timeoutMs = 5000;
@@ -349,85 +382,10 @@ DerivedInterfaceMethod(int)::lua_Connect(GarrysMod::Lua::ILuaBase* LUA)
 		return 2;
 	}
 
-	/*
-	 * Only one attempt runs at a time, so a joinable thread here has already finished and
-	 * joining it is immediate. The outcome of the new attempt reaches Lua through OnConnected
-	 * or OnConnectFailed on a later Poll.
-	 */
-	if (ptr->m_connectThread.joinable())
-		ptr->m_connectThread.join();
-
-	ptr->m_connecting = true;
-	ptr->m_connectThread = std::thread([ptr, host, port, timeoutMs, maxReconnects, reconnectIntervalMs]()
-		{
-			try
-			{
-				ptr->m_iface.connect(host, port, [ptr](auto, auto, auto status)
-					{
-						using state = cpp_redis::connect_state;
-
-						/*
-						 * ok reports success for both the initial connect and a reconnect. dropped fires
-						 * once when the connection is lost, then cpp_redis retries on its own: every
-						 * attempt that fails reports failed or lookup_failed, and stopped means it has
-						 * given up.
-						 */
-						switch (status)
-						{
-						case state::ok:
-							ptr->m_connecting = false;
-							ptr->EnqueueAction({ globals::actionType::Connection });
-							break;
-						case state::dropped:
-							ptr->EnqueueAction({ globals::actionType::Disconnection });
-							break;
-						case state::failed:
-						case state::lookup_failed:
-							ptr->EnqueueAction({ globals::actionType::ReconnectFailed });
-							break;
-						case state::stopped:
-							ptr->EnqueueAction({ globals::actionType::ReconnectStopped });
-							break;
-						default:
-							break;
-						}
-					}, timeoutMs, maxReconnects, reconnectIntervalMs);
-			}
-			catch (const std::exception& e)
-			{
-				ptr->m_connectError = e.what();
-				ptr->m_connecting = false;
-				ptr->EnqueueAction({ globals::actionType::ConnectionFailed });
-			}
-		});
-
-	LUA->PushBool(true);
-	return 1;
-}
-
-DerivedInterfaceMethod(int)::lua_Disconnect(GarrysMod::Lua::ILuaBase* LUA)
-{
-	BaseInterface* ptr = Get(LUA, 1, true);
-
-	/* let an in-flight connect finish so the socket is not torn down underneath it */
-	if (ptr->m_connectThread.joinable())
-		ptr->m_connectThread.join();
-
-	ptr->m_iface.disconnect();
-	return 0;
-}
-
-DerivedInterfaceMethod(int)::lua_Commit(GarrysMod::Lua::ILuaBase* LUA)
-{
-	BaseInterface* ptr = Get(LUA, 1, true);
-
-	try {
-		ptr->m_iface.commit();
-	}
-	catch (const cpp_redis::redis_error& e)
+	if (!ptr->StartConnect(host, port, timeoutMs, maxReconnects, reconnectIntervalMs))
 	{
 		LUA->PushNil();
-		LUA->PushString(e.what());
+		LUA->PushString("could not start the connect thread");
 		return 2;
 	}
 
@@ -435,13 +393,119 @@ DerivedInterfaceMethod(int)::lua_Commit(GarrysMod::Lua::ILuaBase* LUA)
 	return 1;
 }
 
+DerivedInterfaceMethod(bool)::StartConnect(const char* hostName, size_t port, int timeoutMs, int maxReconnects, int reconnectIntervalMs)
+{
+	/*
+	 * Only one attempt runs at a time, so a joinable thread here has already finished and
+	 * joining it is immediate. The outcome of the new attempt reaches Lua through OnConnected
+	 * or OnConnectFailed on a later Poll.
+	 */
+	try
+	{
+		if (m_connectThread.joinable())
+			m_connectThread.join();
+
+		std::string host = hostName;
+		BaseInterface* ptr = this;
+
+		m_connecting = true;
+		m_connectThread = std::thread([ptr, host, port, timeoutMs, maxReconnects, reconnectIntervalMs]()
+			{
+				try
+				{
+					ptr->m_iface.connect(host, port, [ptr](auto, auto, auto status)
+						{
+							using state = cpp_redis::connect_state;
+
+							/*
+							 * ok reports success for both the initial connect and a reconnect. dropped fires
+							 * once when the connection is lost, then cpp_redis retries on its own: every
+							 * attempt that fails reports failed or lookup_failed, and stopped means it has
+							 * given up.
+							 */
+							switch (status)
+							{
+							case state::ok:
+								ptr->m_connecting = false;
+								ptr->EnqueueAction({ globals::actionType::Connection });
+								break;
+							case state::dropped:
+								ptr->EnqueueAction({ globals::actionType::Disconnection });
+								break;
+							case state::failed:
+							case state::lookup_failed:
+								ptr->EnqueueAction({ globals::actionType::ReconnectFailed });
+								break;
+							case state::stopped:
+								ptr->EnqueueAction({ globals::actionType::ReconnectStopped });
+								break;
+							default:
+								break;
+							}
+						}, timeoutMs, maxReconnects, reconnectIntervalMs);
+				}
+				catch (const std::exception& e)
+				{
+					ptr->m_connectError = e.what();
+					ptr->m_connecting = false;
+					ptr->EnqueueAction({ globals::actionType::ConnectionFailed });
+				}
+			});
+	}
+	catch (const std::exception&)
+	{
+		m_connecting = false;
+		return false;
+	}
+
+	return true;
+}
+
+DerivedInterfaceMethod(int)::lua_Disconnect(GarrysMod::Lua::ILuaBase* LUA)
+{
+	BaseInterface* ptr = Get(LUA, 1, true);
+
+	ptr->DisconnectImpl();
+	return 0;
+}
+
+DerivedInterfaceMethod(void)::DisconnectImpl()
+{
+	/* let an in-flight connect finish so the socket is not torn down underneath it */
+	try
+	{
+		if (m_connectThread.joinable())
+			m_connectThread.join();
+
+		m_iface.disconnect();
+	}
+	catch (const std::exception&)
+	{
+	}
+}
+
+DerivedInterfaceMethod(int)::lua_Commit(GarrysMod::Lua::ILuaBase* LUA)
+{
+	BaseInterface* ptr = Get(LUA, 1, true);
+
+	return Guarded(LUA, GarrysMod::Lua::Type::NONE, [&]
+		{
+			ptr->m_iface.commit();
+		});
+}
+
 DerivedInterfaceMethod(int)::lua_Poll(GarrysMod::Lua::ILuaBase* LUA)
 {
 	BaseInterface* ptr = Get(LUA, 1, true);
 
+	return ptr->PollImpl(LUA);
+}
+
+DerivedInterfaceMethod(int)::PollImpl(GarrysMod::Lua::ILuaBase* LUA)
+{
 	bool hadResponses = false;
 	actionStruct action;
-	while (ptr->DequeueAction(action))
+	while (DequeueAction(action))
 	{
 		hadResponses = true;
 
@@ -449,7 +513,7 @@ DerivedInterfaceMethod(int)::lua_Poll(GarrysMod::Lua::ILuaBase* LUA)
 		{
 		case globals::actionType::Disconnection:
 			LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
-			if (redis::PushCallback(LUA, ptr->m_refOnDisconnected, 1, "OnDisconnected"))
+			if (redis::PushCallback(LUA, m_refOnDisconnected, 1, "OnDisconnected"))
 			{
 				LUA->Push(1);
 				if (LUA->PCall(1, 0, -3) != 0)
@@ -460,7 +524,7 @@ DerivedInterfaceMethod(int)::lua_Poll(GarrysMod::Lua::ILuaBase* LUA)
 			break;
 		case globals::actionType::Connection:
 			LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
-			if (redis::PushCallback(LUA, ptr->m_refOnConnected, 1, "OnConnected"))
+			if (redis::PushCallback(LUA, m_refOnConnected, 1, "OnConnected"))
 			{
 				LUA->Push(1);
 				if (LUA->PCall(1, 0, -3) != 0)
@@ -471,10 +535,10 @@ DerivedInterfaceMethod(int)::lua_Poll(GarrysMod::Lua::ILuaBase* LUA)
 			break;
 		case globals::actionType::ConnectionFailed:
 			LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
-			if (redis::PushCallback(LUA, ptr->m_refOnConnectFailed, 1, "OnConnectFailed"))
+			if (redis::PushCallback(LUA, m_refOnConnectFailed, 1, "OnConnectFailed"))
 			{
 				LUA->Push(1);
-				LUA->PushString(ptr->m_connectError.c_str());
+				LUA->PushString(m_connectError.c_str());
 				if (LUA->PCall(2, 0, -4) != 0)
 					redis::ErrorNoHalt(LUA, "[redis OnConnectFailed callback error] ");
 			}
@@ -483,7 +547,7 @@ DerivedInterfaceMethod(int)::lua_Poll(GarrysMod::Lua::ILuaBase* LUA)
 			break;
 		case globals::actionType::ReconnectFailed:
 			LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
-			if (redis::PushCallback(LUA, ptr->m_refOnReconnectFailed, 1, "OnReconnectFailed"))
+			if (redis::PushCallback(LUA, m_refOnReconnectFailed, 1, "OnReconnectFailed"))
 			{
 				LUA->Push(1);
 				if (LUA->PCall(1, 0, -3) != 0)
@@ -494,7 +558,7 @@ DerivedInterfaceMethod(int)::lua_Poll(GarrysMod::Lua::ILuaBase* LUA)
 			break;
 		case globals::actionType::ReconnectStopped:
 			LUA->ReferencePush(redis::globals::iRefDebugTraceBack);
-			if (redis::PushCallback(LUA, ptr->m_refOnReconnectStopped, 1, "OnReconnectStopped"))
+			if (redis::PushCallback(LUA, m_refOnReconnectStopped, 1, "OnReconnectStopped"))
 			{
 				LUA->Push(1);
 				if (LUA->PCall(1, 0, -3) != 0)
@@ -504,7 +568,7 @@ DerivedInterfaceMethod(int)::lua_Poll(GarrysMod::Lua::ILuaBase* LUA)
 				LUA->Pop();
 			break;
 		default:
-			ptr->HandleAction(LUA, action);
+			HandleAction(LUA, action);
 			break;
 		}
 	}

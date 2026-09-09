@@ -49,9 +49,10 @@ namespace redis
 		const char* err = LUA->GetString(-1);
 		LUA->ReferencePush(redis::globals::iRefErrorNoHalt);
 		LUA->PushString(msg);
-		LUA->PushString(err);
+		LUA->PushString(err ? err : "unknown error");
 		LUA->PushString("\n");
-		LUA->Call(3, 0);
+		if (LUA->PCall(3, 0, 0) != 0)
+			LUA->Pop();
 		LUA->Pop();
 	};
 

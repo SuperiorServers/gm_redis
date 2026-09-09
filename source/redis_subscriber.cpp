@@ -71,53 +71,40 @@ int redis::subscriber::lua_Ping(GarrysMod::Lua::ILuaBase* LUA)
 	subscriber* ptr = GetSubscriber(LUA, 1, true);
 	int callbackRef = GetCallbackOptional(LUA, 2);
 
-	try
-	{
-		if (callbackRef == GarrysMod::Lua::Type::NONE)
-			ptr->m_iface.ping();
-		else
-			ptr->m_iface.ping([ptr, callbackRef](cpp_redis::reply& reply)
-				{
-					cpp_redis::reply normalised = reply.is_array()
-						? cpp_redis::reply("PONG", cpp_redis::reply::string_type::simple_string)
-						: reply;
+	return Guarded(LUA, callbackRef, [&]
+		{
+			if (callbackRef == GarrysMod::Lua::Type::NONE)
+				ptr->m_iface.ping();
+			else
+				ptr->m_iface.ping([ptr, callbackRef](cpp_redis::reply& reply)
+					{
+						cpp_redis::reply normalised = reply.is_array()
+							? cpp_redis::reply("PONG", cpp_redis::reply::string_type::simple_string)
+							: reply;
 
-					ptr->EnqueueAction({ redis::globals::actionType::Reply, { {}, {}, normalised, callbackRef } });
-				});
-	}
-	catch (const cpp_redis::redis_error& e)
-	{
-		return Exception(LUA, callbackRef, e);
-	}
-
-	LUA->PushBool(true);
-	return 1;
+						ptr->EnqueueAction({ redis::globals::actionType::Reply, { {}, {}, normalised, callbackRef } });
+					});
+		});
 }
 
 // https://redis.io/commands/auth/
+// Must be called after Connect and before the first Subscribe/PSubscribe
 int redis::subscriber::lua_Auth(GarrysMod::Lua::ILuaBase* LUA)
 {
 	subscriber* ptr = GetSubscriber(LUA, 1, true);
 	const char* password = LUA->CheckString(2);
 	int callbackRef = GetCallbackOptional(LUA, 3);
 
-	try
-	{
-		if (callbackRef == GarrysMod::Lua::Type::NONE)
-			ptr->m_iface.auth(password);
-		else
-			ptr->m_iface.auth(password, [ptr, callbackRef](cpp_redis::reply& reply)
-				{
-					ptr->EnqueueAction({ redis::globals::actionType::Reply, { {}, {}, reply, callbackRef } });
-				});
-	}
-	catch (const cpp_redis::redis_error& e)
-	{
-		return Exception(LUA, callbackRef, e);
-	}
-
-	LUA->PushBool(true);
-	return 1;
+	return Guarded(LUA, callbackRef, [&]
+		{
+			if (callbackRef == GarrysMod::Lua::Type::NONE)
+				ptr->m_iface.auth(password);
+			else
+				ptr->m_iface.auth(password, [ptr, callbackRef](cpp_redis::reply& reply)
+					{
+						ptr->EnqueueAction({ redis::globals::actionType::Reply, { {}, {}, reply, callbackRef } });
+					});
+		});
 }
 
 // https://redis.io/commands/subscribe/
@@ -126,22 +113,13 @@ int redis::subscriber::lua_Subscribe(GarrysMod::Lua::ILuaBase* LUA)
 	subscriber* ptr = GetSubscriber(LUA, 1, true);
 	const char* channel = LUA->CheckString(2);
 
-	try
-	{
-		ptr->m_iface.subscribe(channel, [ptr](const std::string& channel, const std::string& message)
-			{
-				ptr->EnqueueAction({ redis::globals::actionType::Message, channel, message });
-			});
-	}
-	catch (const cpp_redis::redis_error& e)
-	{
-		LUA->PushNil();
-		LUA->PushString(e.what());
-		return 2;
-	}
-
-	LUA->PushBool(true);
-	return 1;
+	return Guarded(LUA, GarrysMod::Lua::Type::NONE, [&]
+		{
+			ptr->m_iface.subscribe(channel, [ptr](const std::string& channel, const std::string& message)
+				{
+					ptr->EnqueueAction({ redis::globals::actionType::Message, channel, message });
+				});
+		});
 }
 
 // https://redis.io/commands/psubscribe/
@@ -150,22 +128,13 @@ int redis::subscriber::lua_PSubscribe(GarrysMod::Lua::ILuaBase* LUA)
 	subscriber* ptr = GetSubscriber(LUA, 1, true);
 	const char* channel = LUA->CheckString(2);
 
-	try
-	{
-		ptr->m_iface.psubscribe(channel, [ptr](const std::string& channel, const std::string& message)
-			{
-				ptr->EnqueueAction({ redis::globals::actionType::Message, channel, message });
-			});
-	}
-	catch (const cpp_redis::redis_error& e)
-	{
-		LUA->PushNil();
-		LUA->PushString(e.what());
-		return 2;
-	}
-
-	LUA->PushBool(true);
-	return 1;
+	return Guarded(LUA, GarrysMod::Lua::Type::NONE, [&]
+		{
+			ptr->m_iface.psubscribe(channel, [ptr](const std::string& channel, const std::string& message)
+				{
+					ptr->EnqueueAction({ redis::globals::actionType::Message, channel, message });
+				});
+		});
 }
 
 // https://redis.io/commands/unsubscribe/
@@ -174,19 +143,10 @@ int redis::subscriber::lua_Unsubscribe(GarrysMod::Lua::ILuaBase* LUA)
 	subscriber* ptr = GetSubscriber(LUA, 1, true);
 	const char* channel = LUA->CheckString(2);
 
-	try
-	{
-		ptr->m_iface.unsubscribe(channel);
-	}
-	catch (const cpp_redis::redis_error& e)
-	{
-		LUA->PushNil();
-		LUA->PushString(e.what());
-		return 2;
-	}
-
-	LUA->PushBool(true);
-	return 1;
+	return Guarded(LUA, GarrysMod::Lua::Type::NONE, [&]
+		{
+			ptr->m_iface.unsubscribe(channel);
+		});
 }
 
 // https://redis.io/commands/punsubscribe/
@@ -195,17 +155,8 @@ int redis::subscriber::lua_PUnsubscribe(GarrysMod::Lua::ILuaBase* LUA)
 	subscriber* ptr = GetSubscriber(LUA, 1, true);
 	const char* channel = LUA->CheckString(2);
 
-	try
-	{
-		ptr->m_iface.punsubscribe(channel);
-	}
-	catch (const cpp_redis::redis_error& e)
-	{
-		LUA->PushNil();
-		LUA->PushString(e.what());
-		return 2;
-	}
-
-	LUA->PushBool(true);
-	return 1;
+	return Guarded(LUA, GarrysMod::Lua::Type::NONE, [&]
+		{
+			ptr->m_iface.punsubscribe(channel);
+		});
 }
